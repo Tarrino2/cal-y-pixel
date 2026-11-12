@@ -995,7 +995,7 @@ $("applyRecipe").addEventListener("click", () => {
     const r = JSON.parse($("recipe").value);
     const t = r.tipo && TYPES[r.tipo] ? r.tipo : type; delete r.tipo;
     if (t !== type) setType(t);
-    P = Object.assign(defaultsFor(t), r, { autoLv: false });
+    P = Object.assign(defaultsFor(t), { autoLv: false }, r);
     if (!Array.isArray(P.stops) || P.stops.length < 1) P.stops = PAL[TYPES[t].p.palette].stops.slice();
     cacheA = null; cacheB = null; syncControls(); schedule();
     $("recipeMsg").className = "msg"; $("recipeMsg").textContent = "Receta aplicada.";
