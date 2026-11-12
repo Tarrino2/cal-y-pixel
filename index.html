@@ -505,44 +505,48 @@ function makeSample() {
 }
 
 /* ---------- filtros ---------- */
-function boxBlur(src, w, h, r) {
+function boxBlur(src, w, h, r, wrap) {
   if (r < 1) return src;
   let a = Float32Array.from(src), b = new Float32Array(w * h);
   const k = 2 * r + 1;
+  const ix = wrap ? (i) => ((i % w) + w) % w : (i) => clamp(i, 0, w - 1);
+  const iy = wrap ? (i) => ((i % h) + h) % h : (i) => clamp(i, 0, h - 1);
   for (let pass = 0; pass < 3; pass++) {
     for (let y = 0; y < h; y++) {
       const base = y * w; let acc = 0;
-      for (let i = -r; i <= r; i++) acc += a[base + clamp(i, 0, w - 1)];
+      for (let i = -r; i <= r; i++) acc += a[base + ix(i)];
       for (let x = 0; x < w; x++) {
         b[base + x] = acc / k;
-        acc += a[base + Math.min(w - 1, x + r + 1)] - a[base + Math.max(0, x - r)];
+        acc += a[base + ix(x + r + 1)] - a[base + ix(x - r)];
       }
     }
     for (let x = 0; x < w; x++) {
       let acc = 0;
-      for (let i = -r; i <= r; i++) acc += b[clamp(i, 0, h - 1) * w + x];
+      for (let i = -r; i <= r; i++) acc += b[iy(i) * w + x];
       for (let y = 0; y < h; y++) {
         a[y * w + x] = acc / k;
-        acc += b[Math.min(h - 1, y + r + 1) * w + x] - b[Math.max(0, y - r) * w + x];
+        acc += b[iy(y + r + 1) * w + x] - b[iy(y - r) * w + x];
       }
     }
   }
   return a;
 }
-function medianFilter(src, w, h, r) {
+function medianFilter(src, w, h, r, wrap) {
   if (r < 1) return src;
+  const ix = wrap ? (i) => ((i % w) + w) % w : (i) => clamp(i, 0, w - 1);
+  const iy = wrap ? (i) => ((i % h) + h) % h : (i) => clamp(i, 0, h - 1);
   const dst = new Uint8ClampedArray(w * h), hist = new Int32Array(256);
   const N = (2 * r + 1) * (2 * r + 1), target = (N >> 1) + 1;
   for (let y = 0; y < h; y++) {
     hist.fill(0);
     const rows = [];
-    for (let dy = -r; dy <= r; dy++) rows.push(clamp(y + dy, 0, h - 1) * w);
-    for (const row of rows) for (let dx = -r; dx <= r; dx++) hist[src[row + clamp(dx, 0, w - 1)]]++;
+    for (let dy = -r; dy <= r; dy++) rows.push(iy(y + dy) * w);
+    for (const row of rows) for (let dx = -r; dx <= r; dx++) hist[src[row + ix(dx)]]++;
     let m = 0, ltm = 0;
     while (ltm + hist[m] < target) { ltm += hist[m]; m++; }
     dst[y * w] = m;
     for (let x = 1; x < w; x++) {
-      const oc = Math.max(0, x - r - 1), ic = Math.min(w - 1, x + r);
+      const oc = ix(x - r - 1), ic = ix(x + r);
       for (const row of rows) {
         const vo = src[row + oc]; hist[vo]--; if (vo < m) ltm--;
         const vi = src[row + ic]; hist[vi]++; if (vi < m) ltm++;
@@ -626,7 +630,7 @@ function autoKey(rgba, w, h) {
 }
 function preLevels(A) {
   if (P.hp < 1) return A.gray;
-  const bl = boxBlur(A.gray, A.w, A.h, P.hp), out = new Float32Array(A.w * A.h);
+  const bl = boxBlur(A.gray, A.w, A.h, P.hp, P.square), out = new Float32Array(A.w * A.h);
   for (let i = 0; i < out.length; i++) out[i] = A.gray[i] - bl[i] + 128;
   return out;
 }
@@ -652,7 +656,7 @@ function stageB(A) {
     v = Math.pow(v, g);
     t8[i] = P.outB + v * (P.outW - P.outB);
   }
-  let m = medianFilter(t8, A.w, A.h, P.median);
+  let m = medianFilter(t8, A.w, A.h, P.median, P.square);
   const tone = new Uint8ClampedArray(n);
   for (let i = 0; i < n; i++) {
     const t = m[i] / 255, s = t * t * (3 - 2 * t);
