@@ -153,6 +153,9 @@ select.sel { border: 1px solid var(--line); background: var(--panel); border-rad
 .txt { border: 1px solid var(--line); background: var(--panel); border-radius: var(--r); padding: 6px 8px; flex: 1; min-width: 0; font-family: var(--f-mono); font-size: 12.5px; }
 .dlrow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .msg { font-size: 12.5px; color: var(--muted); margin: 0; }
+.legend { margin-top: 6px; line-height: 1.5; }
+.legend ol { margin: 4px 0 8px; padding-left: 18px; }
+.legend b { color: var(--text, inherit); }
 .msg.err { color: var(--danger); }
 #fallbackImg { image-rendering: pixelated; border: 1px solid var(--line); background: var(--sunk); max-width: 100%; }
 textarea#recipe { width: 100%; min-height: 90px; font-family: var(--f-mono); font-size: 11.5px; border: 1px solid var(--line); border-radius: var(--r); background: var(--sunk); padding: 8px; resize: vertical; }
@@ -261,6 +264,25 @@ textarea#recipe { width: 100%; min-height: 90px; font-family: var(--f-mono); fon
         <div class="stops" id="stops"></div>
         <div class="row"><button class="btn small" id="addStop" type="button">Añadir color</button></div>
         <div class="swatches" id="swatches" aria-label="Colores resultantes"></div>
+      </div>
+    </details>
+
+    <details class="group" open id="gSheet">
+      <summary>Hoja de piezas</summary>
+      <div class="body">
+        <p class="hint">Saca de la textura las piezas que rompen la caja: medios bloques, remates, zócalos, esquinas redondeadas. Se guarda con los botones de Exportar.</p>
+        <select class="sel" id="hoja" data-p="hoja" aria-label="Qué hoja sacar">
+          <option value="textura">Solo la textura</option>
+          <option value="pared">Piezas de pared</option>
+          <option value="bloque">Bloque con bordes y esquinas</option>
+        </select>
+        <div id="sheetOpts">
+          <div class="row" id="zocWrap"><label for="zocalo" class="hint">Color del zócalo</label><input type="color" id="zocalo" data-p="zocalo" aria-label="Color del zócalo"></div>
+          <div class="ctl" id="radioWrap"><label for="radio">Redondeo de esquinas</label><output data-for="radio"></output><input type="range" id="radio" data-p="radio" min="0" max="7" step="1"></div>
+          <div class="ctl" id="mordWrap"><label for="mordida">Borde mordido por las juntas</label><output data-for="mordida"></output><input type="range" id="mordida" data-p="mordida" min="0" max="1" step="0.25"></div>
+        </div>
+        <p class="msg" id="sheetMsg"></p>
+        <div class="hint legend" id="sheetLegend"></div>
       </div>
     </details>
 
@@ -383,6 +405,7 @@ const BASE = {
   size: 128, levels: 6, keepDark: 0, alphaTh: 0.5, outline: false, pad16: false,
   bossSize: 640, smooth: 3, softEdge: true,
   mode: "pixel", palette: "neg-adoq", stops: null,
+  hoja: "textura", zocalo: "#d9a441", radio: 4, mordida: 0.5,
 };
 const TYPES = {
   suelo:      { label: "Suelo",      p: { palette: "neg-adoq" } },
@@ -684,6 +707,7 @@ function stageB(A) {
 /* ---------- etapa final ---------- */
 const outColor = document.createElement("canvas"), outGray = document.createElement("canvas");
 let outInfo = { w: 0, h: 0, cw: 0, ch: 0 };
+let lastPix = null, sheetOn = false;
 
 function stagePixel(A, B) {
   const W = A.w, H = A.h, N = P.levels;
@@ -716,6 +740,7 @@ function stagePixel(A, B) {
     for (const o of edge) idx[o] = 0;
   }
   const cols = paletteColors(P.stops, N);
+  lastPix = { idx, alpha, CW, CH, N, cols };
   paint(outColor, CW, CH, (o) => cols[idx[o]], alpha);
   paint(outGray, CW, CH, (o) => { const g = idx[o] * 255 / (N - 1); return [g, g, g]; }, alpha);
   outInfo = { w: OW, h: OH, cw: CW, ch: CH };
@@ -748,12 +773,125 @@ function stageBoss(A, B) {
   outInfo = { w: OW, h: OH, cw: OW, ch: OH };
 }
 
+/* ---------- hojas de piezas ---------- */
+const SHEET_LEGEND = {
+  textura: "",
+  pared: `<b>Filas (16 px de alto, tan anchas como la textura):</b>
+    <ol><li>Remate: albardilla clara que corona la pared.</li><li>Sombra de alero: va justo debajo del tejado.</li>
+    <li>Zócalo pintado.</li><li>Base sucia: contacto con el suelo.</li><li>Medio bloque bajo: murete o pretil de 8 px.</li>
+    <li>Medio bloque alto: voladizo o dintel, con su sombra.</li><li>Moldura: imposta que separa plantas.</li><li>Humedad: degradado de manchas abajo.</li></ol>
+    <b>Columnas de la derecha (16 px de ancho):</b> canto iluminado, vuelta de esquina en sombra y pilastra de medio bloque.`,
+  bloque: `<b>Bloque central:</b> la textura con marco de 16 px: bordes y esquinas redondeadas, contorno, canto de luz arriba e izquierda y sombra abajo y a la derecha.
+    <b>Fila de abajo:</b> las 4 esquinas interiores (arriba-izquierda, arriba-derecha, abajo-izquierda, abajo-derecha) para formas en L.
+    Para cualquier tamaño: esquinas tal cual, el borde repetido a lo largo y la textura dentro.`,
+};
+function buildSheet() {
+  const msg = $("sheetMsg");
+  msg.textContent = ""; msg.className = "msg";
+  if (P.hoja === "textura" || !lastPix) return;
+  const { idx, alpha, CW, CH, N, cols } = lastPix;
+  if (CW !== CH || CW % 16 || alpha.some((a) => !a)) {
+    msg.className = "msg err";
+    msg.textContent = "Las piezas salen de texturas cuadradas, sin fondo transparente y en múltiplos de 16. Activa «Cuadrado» y desactiva «Quitar fondo».";
+    return;
+  }
+  const S = CW, top = N - 1;
+  const T = (x, y) => idx[(((y % S) + S) % S) * S + (((x % S) + S) % S)];
+  const cl = (v) => clamp(v, 0, top);
+  const chk = (x, y) => ((x + y) & 1) === 0;
+  let W, H, kind, val;
+  const put = (x, y, k, v) => { if (x >= 0 && y >= 0 && x < W && y < H) { kind[y * W + x] = k; val[y * W + x] = cl(v); } };
+  const TEX = 1, ZOC = 2, SOM = 3;
+
+  if (P.hoja === "pared") {
+    W = S + 48; H = S; kind = new Uint8Array(W * H); val = new Uint8Array(W * H);
+    const strip = (k, f) => { for (let x = 0; x < S; x++) for (let d = 0; d < 16; d++) { const y = k * 16 + d, r = f(x, d, T(x, y), y); if (r) put(x, y, r[0], r[1]); } };
+    strip(0, (x, d, b) => d === 0 ? [TEX, 0] : d < 3 ? [TEX, top] : d === 3 ? [TEX, 0] : d === 4 ? [TEX, b - 1] : [TEX, b]);
+    strip(1, (x, d, b, y) => d < 3 ? [TEX, b - 2] : d === 3 ? [TEX, chk(x, y) ? b - 2 : b - 1] : d === 4 ? [TEX, chk(x, y) ? b - 1 : b] : [TEX, b]);
+    strip(2, (x, d, b) => d < 7 ? [TEX, b] : d === 7 ? [TEX, 0] : d === 8 ? [ZOC, top] : d === 15 ? [ZOC, b - 1] : [ZOC, b]);
+    strip(3, (x, d, b, y) => d < 12 ? [TEX, b] : d === 12 ? [TEX, chk(x, y) ? b - 1 : b] : d < 15 ? [TEX, b - 1] : [TEX, b - 2]);
+    strip(4, (x, d, b) => d < 8 ? null : d === 8 ? [TEX, 0] : d === 9 ? [TEX, top] : d === 15 ? [TEX, b - 1] : [TEX, b]);
+    strip(5, (x, d, b, y) => d === 0 ? [TEX, top] : d < 7 ? [TEX, b] : d === 7 ? [TEX, 0] : d === 8 ? [SOM, 0] : d === 9 && chk(x, y) ? [SOM, 0] : null);
+    strip(6, (x, d, b, y) => d < 5 ? [TEX, b] : d === 5 ? [TEX, 0] : d === 6 ? [TEX, top] : d === 7 ? [TEX, b + 1] : d === 8 ? [TEX, 0] : d < 11 ? [TEX, b - 2] : d === 11 ? [TEX, chk(x, y) ? b - 1 : b] : [TEX, b]);
+    strip(7, (x, d, b, y) => {
+      const h = (Math.sin(x * 0.37) + Math.sin(x * 0.11 + 1.7)) * 1.5;           // borde superior ondulado de la mancha
+      const t = (d - 5 - h) / 10;
+      if (t <= 0) return [TEX, b];
+      const dens = t < 0.35 ? chk(x, y) && (x % 4 === 0) : t < 0.7 ? chk(x, y) : true;
+      return [TEX, dens ? b - 1 : b];
+    });
+    const column = (j, f) => { for (let y = 0; y < S; y++) for (let d = 0; d < 16; d++) { const r = f(d, T(d, y), y); if (r) put(S + 16 * j + d, y, r[0], r[1]); } };
+    column(0, (d, b) => d === 0 ? [TEX, top] : d === 1 ? [TEX, b + 1] : [TEX, b]);
+    column(1, (d, b) => d < 10 ? [TEX, b] : d === 10 ? [TEX, 0] : [TEX, b - 2]);
+    column(2, (d, b, y) => d < 4 ? null : d === 4 ? [TEX, 0] : d === 5 ? [TEX, top] : d < 11 ? [TEX, b] : d === 11 ? [TEX, b - 1] : d === 12 ? [TEX, 0] : d === 13 ? [SOM, 0] : d === 14 && chk(d, y) ? [SOM, 0] : null);
+  } else {
+    const B = S + 32, R = P.radio, bite = P.mordida;
+    W = B; H = B + 16; kind = new Uint8Array(W * H); val = new Uint8Array(W * H);
+    const h01 = (x, y) => { let n = (x * 374761393 + y * 668265263) | 0; n = (n ^ (n >>> 13)) * 1274126177; return ((n ^ (n >>> 16)) >>> 0) / 4294967296; };
+    // Forma con borde mordido: un píxel oscuro (junta) pegado al borde se come, según «mordida».
+    const shape = (geo, samp) => {
+      const inside = (u, v) => {
+        if (!geo(u, v)) return false;
+        if (bite > 0 && samp(u, v) === 0 && !(geo(u - 2, v) && geo(u + 2, v) && geo(u, v - 2) && geo(u, v + 2)) && h01(u, v) < bite) return false;
+        return true;
+      };
+      return inside;
+    };
+    const render = (inside, samp, ox, oy, w, h) => {
+      for (let v = 0; v < h; v++) for (let u = 0; u < w; u++) {
+        const b = samp(u, v);
+        if (!inside(u, v)) { if (inside(u, v - 1) || inside(u, v - 2) || inside(u - 1, v - 1)) put(ox + u, oy + v, SOM, 0); continue; }
+        if (!inside(u - 1, v) || !inside(u + 1, v) || !inside(u, v - 1) || !inside(u, v + 1)) put(ox + u, oy + v, TEX, 0);
+        else if (!inside(u, v - 2) || !inside(u - 2, v)) put(ox + u, oy + v, TEX, b + 1);
+        else if (!inside(u, v + 2) || !inside(u + 2, v)) put(ox + u, oy + v, TEX, b - 1);
+        else put(ox + u, oy + v, TEX, b);
+      }
+    };
+    // Bloque: rectángulo con esquinas redondeadas, metido 2 px en el marco.
+    const a = 2, z = B - 3, c = (a + z) / 2, half = (z - a) / 2;
+    const geoBlock = (u, v) => {
+      const qx = Math.abs(u - c) - (half - R), qy = Math.abs(v - c) - (half - R);
+      const out = Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0) - R;
+      return out <= 0.25;
+    };
+    const sampBlock = (u, v) => T(u - 16, v - 16);
+    render(shape(geoBlock, sampBlock), sampBlock, 0, 0, B, B);
+    // Esquinas interiores: el hueco está en la esquina del tile, el resto es relleno.
+    const RR = Math.max(R, 1);
+    for (let k = 0; k < 4; k++) {
+      const fx = k % 2 === 1, fy = k > 1;
+      const geo = (u, v) => {
+        const x = fx ? 15 - u : u, y = fy ? 15 - v : v;
+        if (!(x < 2 && y < 2)) return true;
+        // Esquina cóncava redondeada: el relleno se curva hacia el hueco.
+        const cx = 1.5 - RR, cy = 1.5 - RR;
+        return x > cx && y > cy && Math.hypot(x - cx, y - cy) > RR + 0.25;
+      };
+      const samp = (u, v) => T(u + 16 * k, v);
+      const inside = shape(geo, samp);
+      // Sólo dentro del tile: fuera de él sigue el relleno (los bordes vecinos se encargan de su parte).
+      const clipped = (u, v) => (u < 0 || v < 0 || u > 15 || v > 15) ? geo(clamp(u, 0, 15), clamp(v, 0, 15)) : inside(u, v);
+      render(clipped, samp, 16 * k, B, 16, 16);
+    }
+  }
+
+  const zc = hexToRgb(P.zocalo);
+  const zcols = paletteColors([rgbToHex(...zc.map((v, i) => v * [0.5, 0.45, 0.55][i])), rgbToHex(...zc), rgbToHex(...zc.map((v) => v + (255 - v) * 0.5))], N);
+  const shadow = [24, 16, 34];
+  const al = new Uint8Array(W * H);
+  for (let i = 0; i < W * H; i++) al[i] = kind[i] === 0 ? 0 : kind[i] === SOM ? 90 : 255;
+  paint(outColor, W, H, (o) => kind[o] === ZOC ? zcols[val[o]] : kind[o] === SOM ? shadow : cols[val[o]], al);
+  paint(outGray, W, H, (o) => { if (kind[o] === SOM) return [0, 0, 0]; const g = val[o] * 255 / Math.max(1, top); return [g, g, g]; }, al);
+  outInfo = { w: W, h: H, cw: W, ch: H };
+  sheetOn = true;
+}
+
 /* ---------- vista previa ---------- */
 const viewC = $("view"), viewport = $("viewport");
 function drawView() {
   const boss = P.mode === "boss";
   const src = view === "gray" ? outGray : outColor;
-  const tiles = $("vTile").checked && !boss ? 3 : 1;
+  const tiles = $("vTile").checked && !boss && !sheetOn ? 3 : 1;
   const w = src.width * tiles, h = src.height * tiles;
   viewC.width = w; viewC.height = h;
   const cx = viewC.getContext("2d"); cx.imageSmoothingEnabled = false; cx.clearRect(0, 0, w, h);
@@ -796,17 +934,18 @@ function run() {
   pending = false;
   try {
     const A = stageA(), B = stageB(A);
-    if (P.mode === "boss") stageBoss(A, B); else stagePixel(A, B);
+    sheetOn = false;
+    if (P.mode === "boss") stageBoss(A, B); else { stagePixel(A, B); buildSheet(); }
     drawView(); drawSource(A); renderSwatches(); updateFallback(); updateRecipe(); syncName(); save();
   } catch (e) { console.error(e); }
   $("busy").hidden = true;
 }
 
 /* ---------- controles ---------- */
-const NUM_KEYS = new Set(["cropL","cropR","cropT","cropB","bgTol","bgEdge","inB","inW","outB","outW","gamma","hp","median","curve","size","levels","keepDark","alphaTh","bossSize","smooth"]);
+const NUM_KEYS = new Set(["cropL","cropR","cropT","cropB","bgTol","bgEdge","inB","inW","outB","outW","gamma","hp","median","curve","size","levels","keepDark","alphaTh","bossSize","smooth","radio","mordida"]);
 const FMT = { gamma: (v) => v.toFixed(2), curve: (v) => v.toFixed(2), keepDark: (v) => v.toFixed(2), alphaTh: (v) => v.toFixed(2),
   cropL: (v) => v + "%", cropR: (v) => v + "%", cropT: (v) => v + "%", cropB: (v) => v + "%", bgTol: (v) => v + "%", hp: (v) => v ? v + " px" : "no",
-  median: (v) => v ? "radio " + v : "no", smooth: (v) => v ? v : "no", size: (v) => v + " px", bossSize: (v) => v + " px" };
+  median: (v) => v ? "radio " + v : "no", radio: (v) => v ? v + " px" : "recto", mordida: (v) => v ? Math.round(v * 100) + " %" : "no", smooth: (v) => v ? v : "no", size: (v) => v + " px", bossSize: (v) => v + " px" };
 function syncControls() {
   document.querySelectorAll("[data-p]").forEach((el) => {
     const k = el.dataset.p; if (!(k in P)) return;
@@ -825,7 +964,12 @@ function syncControls() {
   const alphaOn = P.bgOn || (cacheA && cacheA.hasAlpha);
   $("outlineWrap").style.opacity = alphaOn ? 1 : 0.5; $("outline").disabled = !alphaOn;
   $("alphaWrap").hidden = !alphaOn;
-  $("vTile").disabled = boss;
+  $("vTile").disabled = boss || P.hoja !== "textura";
+  $("gSheet").hidden = boss;
+  $("sheetOpts").hidden = P.hoja === "textura";
+  $("zocWrap").hidden = P.hoja !== "pared";
+  $("radioWrap").hidden = $("mordWrap").hidden = P.hoja !== "bloque";
+  $("sheetLegend").innerHTML = SHEET_LEGEND[P.hoja] || "";
   $("palPreset").value = P.palette && PAL[P.palette] && sameStops(PAL[P.palette].stops, P.stops) ? P.palette : "custom";
   renderStops();
 }
@@ -963,7 +1107,8 @@ function exportCanvas(src) {
 let nameEdited = false;
 function autoName() {
   const pal = P.palette && P.palette !== "custom" ? P.palette : "paleta";
-  return `${baseName}_${type}_${pal}`;
+  const suf = sheetOn ? (P.hoja === "pared" ? "_piezas" : "_bordes") : "";
+  return `${baseName}_${type}_${pal}${suf}`;
 }
 function syncName() { if (!nameEdited) $("outName").value = autoName(); }
 $("outName").addEventListener("input", () => { nameEdited = $("outName").value.trim() !== ""; });
