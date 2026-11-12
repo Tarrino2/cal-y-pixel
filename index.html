@@ -148,6 +148,9 @@ select.sel { border: 1px solid var(--line); background: var(--panel); border-rad
 .howto summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 .howto ol { margin: 8px 0 0; padding-left: 20px; display: grid; gap: 4px; font-size: 13px; }
 
+.namebox { display: grid; gap: 4px; }
+.row.nowrap { flex-wrap: nowrap; }
+.txt { border: 1px solid var(--line); background: var(--panel); border-radius: var(--r); padding: 6px 8px; flex: 1; min-width: 0; font-family: var(--f-mono); font-size: 12.5px; }
 .dlrow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .msg { font-size: 12.5px; color: var(--muted); margin: 0; }
 .msg.err { color: var(--danger); }
@@ -270,6 +273,11 @@ textarea#recipe { width: 100%; min-height: 90px; font-family: var(--f-mono); fon
             <option value="1">1× (para Godot)</option>
             <option value="4">4× (para enseñar)</option>
           </select>
+        </div>
+        <div class="namebox">
+          <label for="outName" class="hint">Nombre del archivo</label>
+          <div class="row nowrap"><input type="text" id="outName" class="txt" spellcheck="false" autocomplete="off"><span class="hint">.png</span></div>
+          <p class="hint">La versión en gris se guarda con «_gris» al final. Bórralo todo para volver al nombre automático.</p>
         </div>
         <div class="dlrow">
           <button class="btn primary" id="dlColor" type="button">Guardar PNG en color</button>
@@ -781,7 +789,7 @@ function run() {
   try {
     const A = stageA(), B = stageB(A);
     if (P.mode === "boss") stageBoss(A, B); else stagePixel(A, B);
-    drawView(); drawSource(A); renderSwatches(); updateFallback(); updateRecipe(); save();
+    drawView(); drawSource(A); renderSwatches(); updateFallback(); updateRecipe(); syncName(); save();
   } catch (e) { console.error(e); }
   $("busy").hidden = true;
 }
@@ -871,7 +879,7 @@ function renderSwatches() {
 
 /* pestañas */
 function setType(t, fromUser) {
-  type = t; P = loadSaved(t);
+  type = t; P = loadSaved(t); nameEdited = false;
   document.querySelectorAll(".tab").forEach((b) => b.setAttribute("aria-selected", b.dataset.type === t ? "true" : "false"));
   $("vTile").checked = t === "suelo" || t === "pared";
   $("resTitle").textContent = "Resultado · " + TYPES[t].label;
@@ -918,7 +926,7 @@ function loadFile(f) {
     const c = document.createElement("canvas"); c.width = im.naturalWidth; c.height = im.naturalHeight;
     c.getContext("2d").drawImage(im, 0, 0); URL.revokeObjectURL(url);
     img = c; imgId++; isSample = false; baseName = (f.name || "foto").replace(/\.[^.]+$/, "").replace(/[^\w\-]+/g, "_").slice(0, 40) || "foto";
-    $("fname").textContent = f.name || "imagen pegada"; $("sampleTag").hidden = true;
+    $("fname").textContent = f.name || "imagen pegada"; $("sampleTag").hidden = true; nameEdited = false;
     P.bgColor = ""; if (TYPES[type].p.bgOn === undefined) { /* tipos sin fondo */ }
     P.autoLv = true; cacheA = null; cacheB = null; syncControls(); schedule();
   };
@@ -943,10 +951,18 @@ function exportCanvas(src) {
   const cx = c.getContext("2d"); cx.imageSmoothingEnabled = false; cx.drawImage(src, 0, 0, c.width, c.height);
   return c;
 }
+let nameEdited = false;
+function autoName() {
+  const pal = P.palette && P.palette !== "custom" ? P.palette : "paleta";
+  return `${baseName}_${type}_${pal}`;
+}
+function syncName() { if (!nameEdited) $("outName").value = autoName(); }
+$("outName").addEventListener("input", () => { nameEdited = $("outName").value.trim() !== ""; });
+$("outName").addEventListener("blur", () => { if (!nameEdited) syncName(); });
 function fileName(kind) {
   const s = P.mode === "boss" ? "" : ($("expScale").value === "4" ? "_x4" : "");
-  const pal = kind === "gris" ? "gris" : (P.palette && P.palette !== "custom" ? P.palette : "paleta");
-  return `${baseName}_${type}_${pal}${s}.png`;
+  const base = ($("outName").value.trim() || autoName()).replace(/\.png$/i, "").replace(/[\\/:*?"<>|]+/g, "_");
+  return kind === "gris" ? `${base}_gris${s}.png` : `${base}${s}.png`;
 }
 function plainDownload(c, name) {
   c.toBlob((blob) => {
