@@ -359,6 +359,7 @@ textarea#recipe { width: 100%; min-height: 90px; font-family: var(--f-mono); fon
         </select>
         <div class="ctl"><label for="tramaTam">Tamaño de la trama</label><output data-for="tramaTam"></output><input type="range" id="tramaTam" data-p="tramaTam" min="1" max="10" step="1"></div>
         <div class="ctl"><label for="tintaCant">Cantidad de tinta</label><output data-for="tintaCant"></output><input type="range" id="tintaCant" data-p="tintaCant" min="-0.5" max="0.8" step="0.05"></div>
+        <div class="ctl"><label for="legible">Legibilidad</label><output data-for="legible"></output><input type="range" id="legible" data-p="legible" min="0" max="1" step="0.05"></div>
         <div class="ctl"><label for="desgaste">Desgaste del papel</label><output data-for="desgaste"></output><input type="range" id="desgaste" data-p="desgaste" min="0" max="1" step="0.05"></div>
         <div class="row">
           <label class="hint" for="tintaColor">Tinta</label><input type="color" id="tintaColor" data-p="tintaColor" aria-label="Color de la tinta">
@@ -548,7 +549,7 @@ const BASE = {
   hoja: "textura", zocalo: "#d9a441", radio: 4, mordida: 0.5,
   niebla: 0, nieblaColor: "#dfe6ee",
   zonas: [],
-  imprenta: false, trama: "puntos", tramaTam: 3, tintaCant: 0.1, desgaste: 0.3, tintaColor: "#2b2218", papelColor: "#d9cba3", papelFondo: false, tintaPaleta: false,
+  imprenta: false, legible: 0.35, trama: "puntos", tramaTam: 3, tintaCant: 0.1, desgaste: 0.3, tintaColor: "#2b2218", papelColor: "#d9cba3", papelFondo: false, tintaPaleta: false,
 };
 const TYPES = {
   suelo:      { label: "Suelo",      p: { palette: "neg-adoq" } },
@@ -951,7 +952,7 @@ function imprenta(canvas, cols, gris, tonos) {   // tonos: la versión en gris (
   const cx = canvas.getContext("2d"), id = cx.getImageData(0, 0, w, h), d = id.data;
   const tinta = gris ? [0, 0, 0] : P.tintaPaleta && cols ? cols[0] : hexToRgb(P.tintaColor || "#2b2218");
   const papel = gris ? [255, 255, 255] : P.tintaPaleta && cols ? cols[cols.length - 1] : hexToRgb(P.papelColor || "#d9cba3");
-  const s = Math.max(1, P.tramaTam || 3), gan = P.tintaCant || 0, des = P.desgaste || 0;
+  const s = Math.max(1, P.tramaTam || 3), gan = P.tintaCant || 0, des = P.desgaste || 0, leg = P.legible || 0;
   const cos = Math.SQRT1_2, sin = Math.SQRT1_2;
   const lumDe = (o) => (tonos && tonos.length === d.length ? tonos[o] / 255 : (0.299 * d[o] + 0.587 * d[o + 1] + 0.114 * d[o + 2]) / 255);
   // se estira el contraste (percentiles 3 y 97) para usar toda la trama, de papel limpio a tinta llena
@@ -982,6 +983,8 @@ function imprenta(canvas, cols, gris, tonos) {   // tonos: la versión en gris (
     if (des && !tintaSi && hash2(x, y, 13) < des * 0.02 * osc) tintaSi = true;     // salpicaduras
     let c = tintaSi ? tinta : papel;
     if (!tintaSi && des) { const k = 1 - des * 0.18 * (1 - mancha); c = c.map((v) => v * k); }
+    // legibilidad: mezcla la trama con el dibujo en tono continuo (de papel a tinta), para que se distinga mejor
+    if (leg > 0) { const t = clamp((1 - lum) * (1 + gan), 0, 1); c = c.map((v, i) => v * (1 - leg) + (papel[i] + (tinta[i] - papel[i]) * t) * leg); }
     d[o] = c[0]; d[o + 1] = c[1]; d[o + 2] = c[2]; d[o + 3] = 255;
   }
   cx.putImageData(id, 0, 0);
@@ -1215,8 +1218,8 @@ function run() {
 }
 
 /* ---------- controles ---------- */
-const NUM_KEYS = new Set(["tramaTam","tintaCant","desgaste","cropL","cropR","cropT","cropB","bgTol","bgEdge","inB","inW","outB","outW","gamma","hp","median","curve","size","levels","keepDark","alphaTh","bossSize","smooth","radio","mordida","niebla"]);
-const FMT = { tintaCant: (v) => (v > 0 ? "+" : "") + v.toFixed(2), desgaste: (v) => v.toFixed(2), gamma: (v) => v.toFixed(2), curve: (v) => v.toFixed(2), keepDark: (v) => v.toFixed(2), alphaTh: (v) => v.toFixed(2),
+const NUM_KEYS = new Set(["legible","tramaTam","tintaCant","desgaste","cropL","cropR","cropT","cropB","bgTol","bgEdge","inB","inW","outB","outW","gamma","hp","median","curve","size","levels","keepDark","alphaTh","bossSize","smooth","radio","mordida","niebla"]);
+const FMT = { legible: (v) => v ? Math.round(v * 100) + " %" : "solo trama", tintaCant: (v) => (v > 0 ? "+" : "") + v.toFixed(2), desgaste: (v) => v.toFixed(2), gamma: (v) => v.toFixed(2), curve: (v) => v.toFixed(2), keepDark: (v) => v.toFixed(2), alphaTh: (v) => v.toFixed(2),
   cropL: (v) => v + "%", cropR: (v) => v + "%", cropT: (v) => v + "%", cropB: (v) => v + "%", bgTol: (v) => v + "%", hp: (v) => v ? v + " px" : "no",
   median: (v) => v ? "radio " + v : "no", radio: (v) => v ? v + " px" : "recto", mordida: (v) => v ? Math.round(v * 100) + " %" : "no", smooth: (v) => v ? v : "no", size: (v) => v + " px", bossSize: (v) => v + " px", niebla: (v) => v ? Math.round(v * 100) + " %" : "no" };
 function syncControls() {
