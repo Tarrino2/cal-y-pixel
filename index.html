@@ -346,6 +346,29 @@ textarea#recipe { width: 100%; min-height: 90px; font-family: var(--f-mono); fon
       </div>
     </details>
 
+    <details class="group" id="gImprenta">
+      <summary>Efecto imprenta</summary>
+      <div class="body">
+        <label class="check"><input type="checkbox" id="imprenta" data-p="imprenta"> Imprenta (trama de tinta sobre papel)</label>
+        <p class="hint">Convierte el resultado en puntos de tinta, como un grabado o una ilustración impresa en un libro viejo.</p>
+        <select class="sel" id="trama" data-p="trama" aria-label="Tipo de trama">
+          <option value="puntos">Semitono (puntos en diagonal)</option>
+          <option value="grano">Grano (punteado al azar)</option>
+          <option value="bayer">Trama ordenada (pixel art)</option>
+          <option value="lineas">Líneas (grabado)</option>
+        </select>
+        <div class="ctl"><label for="tramaTam">Tamaño de la trama</label><output data-for="tramaTam"></output><input type="range" id="tramaTam" data-p="tramaTam" min="1" max="10" step="1"></div>
+        <div class="ctl"><label for="tintaCant">Cantidad de tinta</label><output data-for="tintaCant"></output><input type="range" id="tintaCant" data-p="tintaCant" min="-0.5" max="0.8" step="0.05"></div>
+        <div class="ctl"><label for="desgaste">Desgaste del papel</label><output data-for="desgaste"></output><input type="range" id="desgaste" data-p="desgaste" min="0" max="1" step="0.05"></div>
+        <div class="row">
+          <label class="hint" for="tintaColor">Tinta</label><input type="color" id="tintaColor" data-p="tintaColor" aria-label="Color de la tinta">
+          <label class="hint" for="papelColor">Papel</label><input type="color" id="papelColor" data-p="papelColor" aria-label="Color del papel">
+        </div>
+        <label class="check"><input type="checkbox" id="papelFondo" data-p="papelFondo"> Rellenar lo transparente con papel</label>
+        <label class="check"><input type="checkbox" id="tintaPaleta" data-p="tintaPaleta"> Usar los colores de la paleta en vez de tinta y papel</label>
+      </div>
+    </details>
+
     <details class="group" open id="gZonas">
       <summary>Pinceles de paleta</summary>
       <div class="body">
@@ -525,6 +548,7 @@ const BASE = {
   hoja: "textura", zocalo: "#d9a441", radio: 4, mordida: 0.5,
   niebla: 0, nieblaColor: "#dfe6ee",
   zonas: [],
+  imprenta: false, trama: "puntos", tramaTam: 3, tintaCant: 0.1, desgaste: 0.3, tintaColor: "#2b2218", papelColor: "#d9cba3", papelFondo: false, tintaPaleta: false,
 };
 const TYPES = {
   suelo:      { label: "Suelo",      p: { palette: "neg-adoq" } },
@@ -877,7 +901,7 @@ function stagePixel(A, B) {
   const OH = P.size, OW = P.square ? P.size : Math.max(1, Math.round(W * P.size / H));
   const CW = P.pad16 ? Math.ceil(OW / 16) * 16 : OW, CH = P.pad16 ? Math.ceil(OH / 16) * 16 : OH;
   const ox = Math.floor((CW - OW) / 2), oy = CH - OH;
-  const idx = new Uint8Array(CW * CH), alpha = new Uint8Array(CW * CH), zona = new Uint8Array(CW * CH);
+  const idx = new Uint8Array(CW * CH), alpha = new Uint8Array(CW * CH), zona = new Uint8Array(CW * CH), tonoC = new Float32Array(CW * CH);
   const k = P.keepDark, zm = mascaraPara(A), nz = (P.zonas || []).length, cuenta = new Int32Array(ZT.length + 1);
   for (let y = 0; y < OH; y++) {
     const y0 = Math.floor(y * H / OH), y1 = Math.max(y0 + 1, Math.floor((y + 1) * H / OH));
@@ -891,7 +915,7 @@ function stagePixel(A, B) {
       }
       const val = (1 - k) * (sum / c) + k * mn;
       const o = (y + oy) * CW + (x + ox);
-      idx[o] = Math.round(val / 255 * (N - 1));
+      idx[o] = Math.round(val / 255 * (N - 1)); tonoC[o] = val;
       alpha[o] = A.mask ? (ms / c > P.alphaTh ? 255 : 0) : 255;
       if (zm) { let best = 0, bz = 0; for (let z = 1; z <= nz && z < cuenta.length; z++) if (cuenta[z] > best) { best = cuenta[z]; bz = z; } if (best * 2 >= c - cuenta[0] && best > 0 && best >= cuenta[0]) zona[o] = bz; }
     }
@@ -911,6 +935,56 @@ function stagePixel(A, B) {
   pintarZonas(outZonas, CW, CH, (o) => (alpha[o] ? zona[o] : 0));
   paint(outGray, CW, CH, (o) => { const g = idx[o] * 255 / (N - 1); return [g, g, g]; }, alpha);
   outInfo = { w: OW, h: OH, cw: CW, ch: CH };
+  if (P.imprenta) { const tonos = new Uint8ClampedArray(CW * CH * 4); for (let o = 0; o < CW * CH; o++) tonos[o * 4] = tonoC[o]; imprenta(outColor, cols, false, tonos); imprenta(outGray, null, true, tonos); }
+}
+/* ---------- efecto imprenta: trama de tinta sobre papel ---------- */
+const BAYER8 = (() => { const m = [[0, 2], [3, 1]]; let b = m; for (let n = 2; n < 8; n *= 2) { const nb = []; for (let y = 0; y < n * 2; y++) { nb.push([]); for (let x = 0; x < n * 2; x++) nb[y].push(4 * b[y % n][x % n] + m[Math.floor(y / n)][Math.floor(x / n)]); } b = nb; } return b; })();
+function hash2(x, y, s) { let h = (x * 374761393 + y * 668265263 + s * 2246822519) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; }
+function ruidoSuave(x, y, esc, s) {
+  const fx = x / esc, fy = y / esc, x0 = Math.floor(fx), y0 = Math.floor(fy), u = fx - x0, v = fy - y0;
+  const a = hash2(x0, y0, s), b = hash2(x0 + 1, y0, s), c = hash2(x0, y0 + 1, s), d = hash2(x0 + 1, y0 + 1, s);
+  const su = u * u * (3 - 2 * u), sv = v * v * (3 - 2 * v);
+  return a + (b - a) * su + (c - a) * sv + (a - b - c + d) * su * sv;
+}
+function imprenta(canvas, cols, gris, tonos) {   // tonos: la versión en gris (luces y sombras sin la paleta)
+  const w = canvas.width, h = canvas.height; if (!w || !h) return;
+  const cx = canvas.getContext("2d"), id = cx.getImageData(0, 0, w, h), d = id.data;
+  const tinta = gris ? [0, 0, 0] : P.tintaPaleta && cols ? cols[0] : hexToRgb(P.tintaColor || "#2b2218");
+  const papel = gris ? [255, 255, 255] : P.tintaPaleta && cols ? cols[cols.length - 1] : hexToRgb(P.papelColor || "#d9cba3");
+  const s = Math.max(1, P.tramaTam || 3), gan = P.tintaCant || 0, des = P.desgaste || 0;
+  const cos = Math.SQRT1_2, sin = Math.SQRT1_2;
+  const lumDe = (o) => (tonos && tonos.length === d.length ? tonos[o] / 255 : (0.299 * d[o] + 0.587 * d[o + 1] + 0.114 * d[o + 2]) / 255);
+  // se estira el contraste (percentiles 3 y 97) para usar toda la trama, de papel limpio a tinta llena
+  const hist = new Uint32Array(256); let tot = 0;
+  for (let o = 0; o < d.length; o += 4) if (d[o + 3] >= 128) { hist[Math.round(lumDe(o) * 255)]++; tot++; }
+  let acc = 0, lmin = 0, lmax = 1;
+  for (let i = 0; i < 256; i++) { acc += hist[i]; if (acc >= tot * 0.03) { lmin = i / 255; break; } }
+  acc = 0; for (let i = 255; i >= 0; i--) { acc += hist[i]; if (acc >= tot * 0.03) { lmax = i / 255; break; } }
+  const rango = Math.max(0.05, lmax - lmin);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const o = (y * w + x) * 4, a = d[o + 3];
+    if (a < 128 && !P.papelFondo) continue;
+    const lum = a < 128 ? 1 : Math.pow(clamp((lumDe(o) - lmin) / rango, 0, 1), 0.85);
+    // manchas del papel viejo: tinta que no agarra y zonas más gastadas
+    const mancha = des ? ruidoSuave(x, y, 6 + s * 4, 7) : 0.5;
+    let osc = clamp((1 - lum) * (1 + gan) + gan * 0.15 - des * 0.25 * (mancha - 0.5), 0, 1);
+    let tintaSi;
+    if (P.trama === "grano") tintaSi = hash2(Math.floor(x / Math.max(1, s / 2)), Math.floor(y / Math.max(1, s / 2)), 3) < Math.pow(osc, 1.15);
+    else if (P.trama === "bayer") { const k = Math.max(1, Math.round(s / 2)); tintaSi = (BAYER8[Math.floor(y / k) % 8][Math.floor(x / k) % 8] + 0.5) / 64 < osc; }
+    else if (P.trama === "lineas") {
+      const t = ((x * cos + y * sin) / (s + 1)) % 1, grosor = osc; tintaSi = Math.abs(t - 0.5) * 2 < grosor * (0.85 + 0.3 * (ruidoSuave(x, y, 3, 5) - 0.5));
+    } else {
+      const c = s + 1, u = (x * cos - y * sin) / c, v = (x * sin + y * cos) / c;
+      const du = u - Math.round(u), dv = v - Math.round(v);
+      tintaSi = Math.sqrt(du * du + dv * dv) < Math.sqrt(osc) * 0.62;
+    }
+    if (des && tintaSi && hash2(x, y, 11) < des * 0.12) tintaSi = false;            // poros del papel
+    if (des && !tintaSi && hash2(x, y, 13) < des * 0.02 * osc) tintaSi = true;     // salpicaduras
+    let c = tintaSi ? tinta : papel;
+    if (!tintaSi && des) { const k = 1 - des * 0.18 * (1 - mancha); c = c.map((v) => v * k); }
+    d[o] = c[0]; d[o + 1] = c[1]; d[o + 2] = c[2]; d[o + 3] = 255;
+  }
+  cx.putImageData(id, 0, 0);
 }
 function pintarZonas(canvas, w, h, zonaAt) {
   canvas.width = w; canvas.height = h;
@@ -946,6 +1020,15 @@ function stageBoss(A, B) {
   }
   outInfo = { w: OW, h: OH, cw: OW, ch: OH };
   lastPix = { boss: true, W, H, OW, OH, amask: A.mask };
+  if (P.imprenta) {
+    const tc = document.createElement("canvas"); tc.width = W; tc.height = H;
+    const tx = tc.getContext("2d"), td = tx.createImageData(W, H);
+    for (let i = 0; i < W * H; i++) { const v = clamp(t[i], 0, 255); td.data[i * 4] = td.data[i * 4 + 1] = td.data[i * 4 + 2] = v; td.data[i * 4 + 3] = 255; }
+    tx.putImageData(td, 0, 0);
+    const tg = document.createElement("canvas"); tg.width = OW; tg.height = OH; const gx = tg.getContext("2d"); gx.imageSmoothingEnabled = true; gx.drawImage(tc, 0, 0, OW, OH);
+    const tonos = gx.getImageData(0, 0, OW, OH).data;
+    imprenta(outColor, cols, false, tonos); imprenta(outGray, null, true, tonos);
+  }
 }
 
 /* ---------- hojas de piezas ---------- */
@@ -1132,8 +1215,8 @@ function run() {
 }
 
 /* ---------- controles ---------- */
-const NUM_KEYS = new Set(["cropL","cropR","cropT","cropB","bgTol","bgEdge","inB","inW","outB","outW","gamma","hp","median","curve","size","levels","keepDark","alphaTh","bossSize","smooth","radio","mordida","niebla"]);
-const FMT = { gamma: (v) => v.toFixed(2), curve: (v) => v.toFixed(2), keepDark: (v) => v.toFixed(2), alphaTh: (v) => v.toFixed(2),
+const NUM_KEYS = new Set(["tramaTam","tintaCant","desgaste","cropL","cropR","cropT","cropB","bgTol","bgEdge","inB","inW","outB","outW","gamma","hp","median","curve","size","levels","keepDark","alphaTh","bossSize","smooth","radio","mordida","niebla"]);
+const FMT = { tintaCant: (v) => (v > 0 ? "+" : "") + v.toFixed(2), desgaste: (v) => v.toFixed(2), gamma: (v) => v.toFixed(2), curve: (v) => v.toFixed(2), keepDark: (v) => v.toFixed(2), alphaTh: (v) => v.toFixed(2),
   cropL: (v) => v + "%", cropR: (v) => v + "%", cropT: (v) => v + "%", cropB: (v) => v + "%", bgTol: (v) => v + "%", hp: (v) => v ? v + " px" : "no",
   median: (v) => v ? "radio " + v : "no", radio: (v) => v ? v + " px" : "recto", mordida: (v) => v ? Math.round(v * 100) + " %" : "no", smooth: (v) => v ? v : "no", size: (v) => v + " px", bossSize: (v) => v + " px", niebla: (v) => v ? Math.round(v * 100) + " %" : "no" };
 function syncControls() {
