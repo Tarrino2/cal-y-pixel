@@ -105,6 +105,19 @@ select.sel { border: 1px solid var(--line); background: var(--panel); border-rad
 .stop code { font-family: var(--f-mono); font-size: 12px; color: var(--muted); flex: 1; }
 .swatches { display: flex; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; height: 22px; }
 .swatches span { flex: 1; }
+.zonas { display: grid; gap: 10px; min-width: 0; }
+.zona-cab .sel { flex: 0 1 auto; max-width: 104px; min-width: 0; }
+.zona { border: 1px solid var(--line); border-radius: 6px; padding: 8px; display: grid; gap: 6px; min-width: 0; }
+.zona.sel { border-color: var(--accent, #c9a24a); box-shadow: 0 0 0 1px var(--accent, #c9a24a) inset; }
+.zona-cab { display: flex; gap: 6px; align-items: center; }
+.zona-cab input[type=text] { flex: 1 1 0; width: 0; min-width: 0; }
+.zona { grid-template-columns: minmax(0, 1fr); }
+.zona-cab { min-width: 0; }
+.zona-dot { width: 18px; height: 18px; border-radius: 50%; flex: none; border: 2px solid rgba(0,0,0,.35); cursor: pointer; padding: 0; }
+.zona-cols { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.zona-cols input[type=color] { width: 30px; height: 24px; padding: 0; border: 1px solid var(--line); border-radius: 4px; }
+#zPincel[aria-pressed="true"] { background: var(--accent, #c9a24a); color: #1a1408; }
+canvas.brushing { cursor: crosshair !important; touch-action: none; }
 
 .stage { display: grid; gap: 16px; min-width: 0; }
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: calc(var(--r) + 2px); min-width: 0; }
@@ -333,6 +346,26 @@ textarea#recipe { width: 100%; min-height: 90px; font-family: var(--f-mono); fon
       </div>
     </details>
 
+    <details class="group" open id="gZonas">
+      <summary>Pinceles de paleta</summary>
+      <div class="body">
+        <p class="hint">Pinta encima del resultado y esa parte usa otra paleta, conservando sus luces y sombras. Solo pinta donde hay píxeles. Ejemplo: en una palmera, las hojas en verdes y el tronco en marrones.</p>
+        <div class="row">
+          <button class="btn small" id="zPincel" type="button" aria-pressed="false">🖌 Pintar</button>
+          <label class="check"><input type="checkbox" id="zGoma"> Goma</label>
+          <label class="check"><input type="checkbox" id="zVer" checked> Ver zonas</label>
+        </div>
+        <div class="ctl"><label for="zTam">Tamaño del pincel</label><output id="zTamOut">3</output><input type="range" id="zTam" min="1" max="16" step="1" value="3"></div>
+        <div class="zonas" id="zLista"></div>
+        <div class="row">
+          <button class="btn small" id="zNueva" type="button">Añadir paleta secundaria</button>
+          <button class="btn small" id="zLimpiar" type="button">Borrar lo pintado</button>
+        </div>
+        <p class="hint">Clic izquierdo pinta con la paleta elegida (el círculo de color). Clic derecho o «Goma» borra.</p>
+        <p class="msg" id="zMsg"></p>
+      </div>
+    </details>
+
     <details class="group" open id="gSheet">
       <summary>Hoja de piezas</summary>
       <div class="body">
@@ -473,6 +506,10 @@ const PALETTES = [
   ["boss-pizarra",  "Boss · pizarra",         ["1d262e", "4a5966", "a9b6bf"]],
   ["boss-hueso",    "Boss · hueso",           ["1a1714", "5a5048", "d8d0c0"]],
   ["boss-sangre",   "Boss · sangre",          ["120606", "5e1414", "c9b8a8"]],
+  ["verdes",        "Verdes (hojas)",         ["1e3a26", "4a8a3c", "b5dc7d"]],
+  ["marrones",      "Marrones (tronco)",      ["2e1c12", "83562f", "d1a469"]],
+  ["piedra",        "Grises piedra",          ["2b2b30", "74747c", "cfcfd2"]],
+  ["rosas",         "Rosas buganvilla",       ["4a1030", "b02a72", "f29cc8"]],
   ["gris",          "Gris (sin color)",       ["000000", "ffffff"]],
 ];
 const PAL = Object.fromEntries(PALETTES.map(([k, n, c]) => [k, { name: n, stops: c }]));
@@ -487,6 +524,7 @@ const BASE = {
   mode: "pixel", palette: "neg-adoq", stops: null,
   hoja: "textura", zocalo: "#d9a441", radio: 4, mordida: 0.5,
   niebla: 0, nieblaColor: "#dfe6ee",
+  zonas: [],
 };
 const TYPES = {
   suelo:      { label: "Suelo",      p: { palette: "neg-adoq" } },
@@ -583,6 +621,7 @@ let view = "color";
 function defaultsFor(t) {
   const d = Object.assign({}, BASE, TYPES[t].p);
   d.stops = PAL[d.palette].stops.slice();
+  d.zonas = [];
   return d;
 }
 function loadSaved(t) {
@@ -803,29 +842,58 @@ function stageB(A) {
 }
 
 /* ---------- etapa final ---------- */
-let outColor = document.createElement("canvas"), outGray = document.createElement("canvas");
+let outColor = document.createElement("canvas"), outGray = document.createElement("canvas"), outZonas = document.createElement("canvas");
 let outInfo = { w: 0, h: 0, cw: 0, ch: 0 };
 let lastPix = null, sheetOn = false;
+
+/* ---------- zonas pintadas (pinceles de paleta) ----------
+   La máscara se guarda a la resolución de la imagen de trabajo (A), así sigue valiendo si cambias el tamaño.
+   Cada trazo crea una versión nueva (para deshacer/rehacer con el historial). */
+const ZT = ["#ff4d4d", "#3fa0ff", "#ffd21a", "#b45cff", "#33e08c", "#ff8c1a"];
+const ZREG = {}; let zSig = 1;
+let pincelOn = false, zSel = 1, trazo = null;
+const zonaActual = new Map();   // imgId -> id de la versión de máscara
+function mascaraPara(A, id) {
+  const r = ZREG[zonaActual.get(id === undefined ? imgId : id)];
+  if (!r) return null;
+  if (r.w === A.w && r.h === A.h) return r.m;
+  if (r.rs && r.rs.w === A.w && r.rs.h === A.h) return r.rs.m;
+  const m = new Uint8Array(A.w * A.h);
+  for (let y = 0; y < A.h; y++) { const sy = Math.min(r.h - 1, Math.floor(y * r.h / A.h)); for (let x = 0; x < A.w; x++) m[y * A.w + x] = r.m[sy * r.w + Math.min(r.w - 1, Math.floor(x * r.w / A.w))]; }
+  r.rs = { w: A.w, h: A.h, m };
+  return m;
+}
+function nuevaVersionMascara(A) {
+  const vieja = mascaraPara(A);
+  const rec = { id: zSig++, w: A.w, h: A.h, m: vieja ? Uint8Array.from(vieja) : new Uint8Array(A.w * A.h) };
+  ZREG[rec.id] = rec; zonaActual.set(imgId, rec.id);
+  return rec;
+}
+function coloresZonas(N) { return (P.zonas || []).map((z) => conNiebla(paletteColors(z.stops && z.stops.length ? z.stops : ["000000", "ffffff"], N))); }
+function tinte(z) { const c = hexToRgb(ZT[(z - 1) % ZT.length]); return c; }
 
 function stagePixel(A, B) {
   const W = A.w, H = A.h, N = P.levels;
   const OH = P.size, OW = P.square ? P.size : Math.max(1, Math.round(W * P.size / H));
   const CW = P.pad16 ? Math.ceil(OW / 16) * 16 : OW, CH = P.pad16 ? Math.ceil(OH / 16) * 16 : OH;
   const ox = Math.floor((CW - OW) / 2), oy = CH - OH;
-  const idx = new Uint8Array(CW * CH), alpha = new Uint8Array(CW * CH);
-  const k = P.keepDark;
+  const idx = new Uint8Array(CW * CH), alpha = new Uint8Array(CW * CH), zona = new Uint8Array(CW * CH);
+  const k = P.keepDark, zm = mascaraPara(A), nz = (P.zonas || []).length, cuenta = new Int32Array(ZT.length + 1);
   for (let y = 0; y < OH; y++) {
     const y0 = Math.floor(y * H / OH), y1 = Math.max(y0 + 1, Math.floor((y + 1) * H / OH));
     for (let x = 0; x < OW; x++) {
       const x0 = Math.floor(x * W / OW), x1 = Math.max(x0 + 1, Math.floor((x + 1) * W / OW));
       let sum = 0, mn = 255, ms = 0, c = 0;
+      if (zm) cuenta.fill(0);
       for (let yy = y0; yy < y1; yy++) for (let xx = x0; xx < x1; xx++) {
         const i = yy * W + xx, v = B.tone[i]; sum += v; if (v < mn) mn = v; if (A.mask) ms += A.mask[i]; c++;
+        if (zm) cuenta[zm[i]]++;
       }
       const val = (1 - k) * (sum / c) + k * mn;
       const o = (y + oy) * CW + (x + ox);
       idx[o] = Math.round(val / 255 * (N - 1));
       alpha[o] = A.mask ? (ms / c > P.alphaTh ? 255 : 0) : 255;
+      if (zm) { let best = 0, bz = 0; for (let z = 1; z <= nz && z < cuenta.length; z++) if (cuenta[z] > best) { best = cuenta[z]; bz = z; } if (best * 2 >= c - cuenta[0] && best > 0 && best >= cuenta[0]) zona[o] = bz; }
     }
   }
   if (P.outline && A.mask) {
@@ -837,11 +905,18 @@ function stagePixel(A, B) {
     }
     for (const o of edge) idx[o] = 0;
   }
-  const cols = conNiebla(paletteColors(P.stops, N));
-  lastPix = { idx, alpha, CW, CH, N, cols };
-  paint(outColor, CW, CH, (o) => cols[idx[o]], alpha);
+  const cols = conNiebla(paletteColors(P.stops, N)), colsZ = coloresZonas(N);
+  lastPix = { idx, alpha, CW, CH, N, cols, zona, ox, oy, OW, OH, W, H };
+  paint(outColor, CW, CH, (o) => { const z = zona[o]; return z && colsZ[z - 1] ? colsZ[z - 1][idx[o]] : cols[idx[o]]; }, alpha);
+  pintarZonas(outZonas, CW, CH, (o) => (alpha[o] ? zona[o] : 0));
   paint(outGray, CW, CH, (o) => { const g = idx[o] * 255 / (N - 1); return [g, g, g]; }, alpha);
   outInfo = { w: OW, h: OH, cw: CW, ch: CH };
+}
+function pintarZonas(canvas, w, h, zonaAt) {
+  canvas.width = w; canvas.height = h;
+  const cx = canvas.getContext("2d"), id = cx.createImageData(w, h), d = id.data;
+  for (let o = 0; o < w * h; o++) { const z = zonaAt(o); if (!z) continue; const c = tinte(z), p = o * 4; d[p] = c[0]; d[p + 1] = c[1]; d[p + 2] = c[2]; d[p + 3] = 120; }
+  cx.putImageData(id, 0, 0);
 }
 function paint(canvas, w, h, colorAt, alpha) {
   canvas.width = w; canvas.height = h;
@@ -858,17 +933,19 @@ function stageBoss(A, B) {
     idx[i] = Math.round(clamp(t[i], 0, 255) / 255 * (N - 1));
     alpha[i] = A.mask ? (P.softEdge ? clamp(A.mask[i] * 255, 0, 255) : (A.mask[i] > 0.5 ? 255 : 0)) : 255;
   }
-  const cols = conNiebla(paletteColors(P.stops, N));
-  const tmpC = document.createElement("canvas"), tmpG = document.createElement("canvas");
-  paint(tmpC, W, H, (o) => cols[idx[o]], alpha);
+  const cols = conNiebla(paletteColors(P.stops, N)), colsZ = coloresZonas(N), zm = mascaraPara(A);
+  const tmpC = document.createElement("canvas"), tmpG = document.createElement("canvas"), tmpZ = document.createElement("canvas");
+  paint(tmpC, W, H, (o) => { const z = zm ? zm[o] : 0; return z && colsZ[z - 1] ? colsZ[z - 1][idx[o]] : cols[idx[o]]; }, alpha);
+  pintarZonas(tmpZ, W, H, (o) => (zm && alpha[o] > 127 && colsZ[zm[o] - 1] ? zm[o] : 0));
   paint(tmpG, W, H, (o) => { const g = idx[o] * 255 / (N - 1); return [g, g, g]; }, alpha);
   const OH = P.bossSize, OW = Math.max(1, Math.round(W * OH / H));
-  for (const [dst, src] of [[outColor, tmpC], [outGray, tmpG]]) {
+  for (const [dst, src] of [[outColor, tmpC], [outGray, tmpG], [outZonas, tmpZ]]) {
     dst.width = OW; dst.height = OH;
     const cx = dst.getContext("2d"); cx.imageSmoothingEnabled = true; cx.imageSmoothingQuality = "high";
     cx.clearRect(0, 0, OW, OH); cx.drawImage(src, 0, 0, OW, OH);
   }
   outInfo = { w: OW, h: OH, cw: OW, ch: OH };
+  lastPix = { boss: true, W, H, OW, OH, amask: A.mask };
 }
 
 /* ---------- hojas de piezas ---------- */
@@ -995,7 +1072,10 @@ function drawView() {
   viewC.width = w; viewC.height = h;
   const cx = viewC.getContext("2d"); cx.imageSmoothingEnabled = false; cx.clearRect(0, 0, w, h);
   for (let j = 0; j < tiles; j++) for (let i = 0; i < tiles; i++) cx.drawImage(src, i * src.width, j * src.height);
+  if (!comp && pincelOn && $("zVer").checked && outZonas.width === src.width && outZonas.height === src.height)
+    for (let j = 0; j < tiles; j++) for (let i = 0; i < tiles; i++) cx.drawImage(outZonas, i * src.width, j * src.height);
   viewC.classList.toggle("pixel", !boss);
+  viewC.classList.toggle("brushing", !comp && pincelOn);
   viewC.classList.toggle("compview", comp);
   const availW = Math.max(100, viewport.clientWidth - 32), availH = Math.max(320, Math.min(720, window.innerHeight * 0.68));
   let z = $("vZoom").value;
@@ -1084,6 +1164,7 @@ function syncControls() {
   $("sheetLegend").innerHTML = SHEET_LEGEND[P.hoja] || "";
   $("palPreset").value = P.palette && PAL[P.palette] && sameStops(PAL[P.palette].stops, P.stops) ? P.palette : "custom";
   renderStops();
+  renderZonas();
 }
 document.querySelectorAll("[data-p]").forEach((el) => {
   el.addEventListener("input", () => {
@@ -1141,6 +1222,140 @@ function renderSwatches() {
   const cols = paletteColors(P.stops, P.levels);
   $("swatches").innerHTML = cols.map((c) => `<span style="background:#${rgbToHex(...c)}" title="#${rgbToHex(...c)}"></span>`).join("");
 }
+
+/* pinceles de paleta */
+function zMsg(t) { $("zMsg").textContent = t || ""; }
+function renderZonas() {
+  const box = $("zLista"); box.innerHTML = "";
+  if (!P.zonas) P.zonas = [];
+  if (zSel > P.zonas.length) zSel = Math.max(1, P.zonas.length);
+  P.zonas.forEach((z, i) => {
+    const n = i + 1;
+    const div = document.createElement("div"); div.className = "zona" + (n === zSel ? " sel" : "");
+    const cab = document.createElement("div"); cab.className = "zona-cab";
+    const dot = document.createElement("button"); dot.type = "button"; dot.className = "zona-dot"; dot.style.background = ZT[i % ZT.length];
+    dot.title = "Pintar con esta paleta"; dot.setAttribute("aria-label", "Pintar con " + (z.nombre || "esta paleta"));
+    dot.addEventListener("click", () => { zSel = n; if (!pincelOn) setPincel(true); renderZonas(); });
+    const nom = document.createElement("input"); nom.type = "text"; nom.className = "txt"; nom.value = z.nombre || ""; nom.setAttribute("aria-label", "Nombre de la paleta");
+    nom.addEventListener("input", () => { z.nombre = nom.value; save(); programarHistoria(); });
+    nom.addEventListener("focus", () => { zSel = n; div.parentNode.querySelectorAll(".zona").forEach((d, k) => d.classList.toggle("sel", k === i)); });
+    const pre = document.createElement("select"); pre.className = "sel"; pre.style.width = "auto"; pre.setAttribute("aria-label", "Paleta predefinida");
+    pre.innerHTML = '<option value="">Paleta…</option>' + PALETTES.map(([k, nn]) => `<option value="${k}">${nn}</option>`).join("");
+    pre.addEventListener("change", () => { if (!pre.value) return; z.stops = PAL[pre.value].stops.slice(); if (!z.nombre || /^Paleta \d+$/.test(z.nombre)) z.nombre = PAL[pre.value].name; renderZonas(); schedule(); });
+    const rm = document.createElement("button"); rm.type = "button"; rm.className = "btn small"; rm.textContent = "✕"; rm.title = "Quitar esta paleta secundaria";
+    rm.addEventListener("click", () => quitarZona(n));
+    cab.append(dot, nom, pre, rm);
+    const cols = document.createElement("div"); cols.className = "zona-cols";
+    z.stops.forEach((hex, k) => {
+      const c = document.createElement("input"); c.type = "color"; c.value = "#" + hex; c.title = k === 0 ? "oscuro" : k === z.stops.length - 1 ? "claro" : "medio";
+      c.addEventListener("input", () => { z.stops[k] = c.value.replace("#", ""); schedule(); });
+      cols.append(c);
+    });
+    const mas = document.createElement("button"); mas.type = "button"; mas.className = "btn small"; mas.textContent = "+"; mas.title = "Añadir un color";
+    mas.addEventListener("click", () => { z.stops = paletteColors(z.stops, z.stops.length + 1).map((c) => rgbToHex(...c)); renderZonas(); schedule(); });
+    cols.append(mas);
+    if (z.stops.length > 2) {
+      const menos = document.createElement("button"); menos.type = "button"; menos.className = "btn small"; menos.textContent = "−"; menos.title = "Quitar el último color";
+      menos.addEventListener("click", () => { z.stops.pop(); renderZonas(); schedule(); });
+      cols.append(menos);
+    }
+    const sw = document.createElement("div"); sw.className = "swatches";
+    sw.innerHTML = paletteColors(z.stops, P.levels || 6).map((c) => `<span style="background:#${rgbToHex(...c)}"></span>`).join("");
+    div.append(cab, cols, sw);
+    box.append(div);
+  });
+  $("zNueva").disabled = P.zonas.length >= ZT.length;
+}
+function setPincel(on) {
+  pincelOn = on; $("zPincel").setAttribute("aria-pressed", on ? "true" : "false");
+  if (on && !P.zonas.length) anadirZona();
+  if (on && enComposicion()) zMsg("Los pinceles funcionan en la vista «Foto» (o sin capas). En la composición no se pinta.");
+  else zMsg(on ? "Pinta encima del resultado." : "");
+  drawView();
+}
+function anadirZona() {
+  if (P.zonas.length >= ZT.length) return;
+  const pres = ["verdes", "marrones", "piedra", "rosas", "neg-terracota", "neg-cal"][P.zonas.length] || "gris";
+  P.zonas.push({ nombre: PAL[pres].name, stops: PAL[pres].stops.slice() });
+  zSel = P.zonas.length; renderZonas(); save(); programarHistoria(); schedule();
+}
+function quitarZona(n) {
+  const A = cacheA; if (A && mascaraPara(A)) {
+    const r = nuevaVersionMascara(A);
+    for (let i = 0; i < r.m.length; i++) { const z = r.m[i]; if (z === n) r.m[i] = 0; else if (z > n) r.m[i] = z - 1; }
+  }
+  P.zonas.splice(n - 1, 1); if (zSel >= n) zSel = Math.max(1, zSel - 1);
+  renderZonas(); schedule();
+}
+$("zPincel").addEventListener("click", () => setPincel(!pincelOn));
+$("zNueva").addEventListener("click", anadirZona);
+$("zVer").addEventListener("change", drawView);
+$("zTam").addEventListener("input", () => { $("zTamOut").textContent = $("zTam").value; });
+$("zLimpiar").addEventListener("click", () => { const A = stageA(); if (!mascaraPara(A)) return; nuevaVersionMascara(A).m.fill(0); schedule(); zMsg("Zonas borradas (Ctrl+Z para recuperarlas)."); });
+
+function puntoSalida(e) {
+  const r = viewC.getBoundingClientRect();
+  const w = outColor.width, h = outColor.height;
+  let x = (e.clientX - r.left) * viewC.width / r.width, y = (e.clientY - r.top) * viewC.height / r.height;
+  return { x: ((x % w) + w) % w, y: ((y % h) + h) % h };
+}
+function pincelar(x, y, val) {
+  const L = lastPix, A = cacheA, m = trazo.rec.m; if (!L || !A) return;
+  const tam = +$("zTam").value;
+  if (L.boss) {
+    const k = L.W / L.OW, cx = x * k, cy = y * k, r = (tam * 3) * k;
+    for (let yy = Math.max(0, Math.floor(cy - r)); yy <= Math.min(L.H - 1, Math.ceil(cy + r)); yy++)
+      for (let xx = Math.max(0, Math.floor(cx - r)); xx <= Math.min(L.W - 1, Math.ceil(cx + r)); xx++) {
+        if ((xx - cx) ** 2 + (yy - cy) ** 2 > r * r) continue;
+        const i = yy * L.W + xx; if (L.amask && L.amask[i] <= 0.5) continue;
+        m[i] = val;
+      }
+    return;
+  }
+  const rr = tam - 1, px0 = Math.floor(x), py0 = Math.floor(y), r2 = rr * rr + rr * 0.8;
+  for (let dy = -rr; dy <= rr; dy++) for (let dx = -rr; dx <= rr; dx++) {
+    if (dx * dx + dy * dy > r2) continue;
+    const px = px0 + dx, py = py0 + dy; if (px < 0 || py < 0 || px >= L.CW || py >= L.CH) continue;
+    if (!L.alpha[py * L.CW + px]) continue;           // solo donde hay píxeles
+    const X = px - L.ox, Y = py - L.oy; if (X < 0 || Y < 0 || X >= L.OW || Y >= L.OH) continue;
+    const y0 = Math.floor(Y * L.H / L.OH), y1 = Math.max(y0 + 1, Math.floor((Y + 1) * L.H / L.OH));
+    const x0 = Math.floor(X * L.W / L.OW), x1 = Math.max(x0 + 1, Math.floor((X + 1) * L.W / L.OW));
+    for (let yy = y0; yy < y1; yy++) m.fill(val, yy * L.W + x0, yy * L.W + x1);
+  }
+}
+let zFrame = 0;
+function redibujarZonas() {
+  if (zFrame) return;
+  zFrame = requestAnimationFrame(() => {
+    zFrame = 0;
+    const A = stageA(), B = stageB(A);
+    if (P.mode === "boss") stageBoss(A, B); else stagePixel(A, B);
+    drawView();
+  });
+}
+viewC.addEventListener("pointerdown", (e) => {
+  if (!pincelOn || enComposicion() || sheetOn) return;
+  if (!P.zonas.length) anadirZona();
+  const A = stageA();
+  const val = e.button === 2 || $("zGoma").checked ? 0 : zSel;
+  trazo = { rec: nuevaVersionMascara(A), val, ultimo: puntoSalida(e) };
+  pincelar(trazo.ultimo.x, trazo.ultimo.y, val);
+  viewC.setPointerCapture(e.pointerId); e.preventDefault();
+  redibujarZonas();
+});
+viewC.addEventListener("pointermove", (e) => {
+  if (!trazo) return;
+  const p = puntoSalida(e), u = trazo.ultimo;
+  const pasos = Math.max(1, Math.ceil(Math.max(Math.abs(p.x - u.x), Math.abs(p.y - u.y))));
+  if (pasos < outColor.width / 2) for (let s = 1; s <= pasos; s++) pincelar(u.x + (p.x - u.x) * s / pasos, u.y + (p.y - u.y) * s / pasos, trazo.val);
+  else pincelar(p.x, p.y, trazo.val);
+  trazo.ultimo = p;
+  redibujarZonas();
+});
+const acabarTrazo = () => { if (!trazo) return; trazo = null; schedule(); };
+viewC.addEventListener("pointerup", acabarTrazo);
+viewC.addEventListener("pointercancel", acabarTrazo);
+viewC.addEventListener("contextmenu", (e) => { if (pincelOn && !enComposicion()) e.preventDefault(); });
 
 /* pestañas */
 function setType(t, fromUser) {
@@ -1413,19 +1628,19 @@ function paramsDeElemento(capa, el) {
   return p;
 }
 function procesar(capa, el) {
-  const prm = paramsDeElemento(capa, el), key = JSON.stringify(prm);
+  const prm = paramsDeElemento(capa, el), key = JSON.stringify(prm) + "|z" + (zonaActual.get("pieza" + el.id) || 0);
   if (el.cache && el.cache.key === key) return el.cache;
-  const sv = { P, img, imgId, cacheA, cacheB, lastPix, outInfo, sheetOn, outColor, outGray };
+  const sv = { P, img, imgId, cacheA, cacheB, lastPix, outInfo, sheetOn, outColor, outGray, outZonas };
   enCapa = true;
   try {
     P = prm; img = el.src; imgId = "pieza" + el.id; cacheA = el.cA; cacheB = el.cB;
-    outColor = document.createElement("canvas"); outGray = document.createElement("canvas");
+    outColor = document.createElement("canvas"); outGray = document.createElement("canvas"); outZonas = document.createElement("canvas");
     const A = stageA(), B = stageB(A);
     if (P.mode === "boss") stageBoss(A, B); else stagePixel(A, B);
     el.cA = cacheA; el.cB = cacheB;
     el.cache = { key, c: outColor, g: outGray, boss: P.mode === "boss" };
   } finally {
-    ({ P, img, imgId, cacheA, cacheB, lastPix, outInfo, sheetOn, outColor, outGray } = sv);
+    ({ P, img, imgId, cacheA, cacheB, lastPix, outInfo, sheetOn, outColor, outGray, outZonas } = sv);
     enCapa = false;
   }
   return el.cache;
@@ -1755,7 +1970,7 @@ let pilaDeshacer = [], pilaRehacer = [], ultimoEstado = null, restaurando = fals
 const MAX_HIST = 80;
 function registrarImagen() { imgReg[imgId] = { img, baseName, isSample, fname: $("fname").textContent }; }
 function estado() {
-  return JSON.stringify({ t: type, P: mainP, img: imgId, v: stageVista, cs: $("compScale").value,
+  return JSON.stringify({ t: type, P: mainP, img: imgId, v: stageVista, cs: $("compScale").value, Z: [...zonaActual],
     L: comp.layers.map((l) => ({ id: l.id, n: l.name, v: l.visible, h: l.inherit, P: l.P,
       e: l.els.map((e) => [e.id, e.name, e.x, e.y, e.fh, e.fv, e.visible, e.escala]) })) });
 }
@@ -1787,6 +2002,7 @@ function restaurar(str) {
     $("fname").textContent = r.fname; $("sampleTag").hidden = !isSample;
   }
   stageVista = s.v; $("compScale").value = s.cs;
+  zonaActual.clear(); for (const [k, v] of s.Z || []) zonaActual.set(k, v);
   const selL = comp.selL && comp.selL.id, selE = comp.selE && comp.selE.id;
   comp.layers = s.L.map((l) => ({ id: l.id, name: l.n, visible: l.v, inherit: l.h, P: l.P,
     els: l.e.map(([id, name, x, y, fh, fv, visible, escala]) => Object.assign(elReg[id], { name, x, y, fh, fv, visible, escala })) }));
