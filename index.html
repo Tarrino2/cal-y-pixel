@@ -1,16 +1,9 @@
-<!doctype html>
-<html lang="es">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<style>[hidden]{display:none!important}img{max-width:100%}:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}</style>
-</head>
-<body>
 <title>Cal y Píxel</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <style>
 /* Layout: banco de trabajo. Panel de controles a la izquierda, mesa de vista previa a la derecha; en móvil, una columna. */
 :root {
@@ -72,6 +65,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 @media (max-width: 880px) { .layout { grid-template-columns: minmax(0, 1fr); } .tabs { margin-left: 0; } }
 
 .controls { background: var(--panel); border: 1px solid var(--line); border-radius: calc(var(--r) + 2px); }
+.controls { overflow-x: hidden; }
 @media (min-width: 881px) { .controls { position: sticky; top: max(12px, env(safe-area-inset-top, 0px)); max-height: calc(100vh - 24px); overflow: auto; } }
 .group { border-bottom: 1px solid var(--line); }
 .group:last-child { border-bottom: 0; }
@@ -123,6 +117,7 @@ select.sel { border: 1px solid var(--line); background: var(--panel); border-rad
 .viewtools select { border: 1px solid var(--line); background: var(--panel); border-radius: var(--r); padding: 4px 6px; font-size: 13px; }
 .seg { display: inline-flex; border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
 .seg button { border: 0; background: var(--panel); padding: 4px 10px; font-size: 13px; cursor: pointer; color: var(--muted); }
+.seg button:disabled { opacity: .4; cursor: not-allowed; }
 .seg button[aria-pressed="true"] { background: var(--accent-soft); color: var(--ink); font-weight: 500; }
 
 .viewport { position: relative; display: grid; place-items: center; padding: 16px; min-height: 360px; overflow: auto; border-radius: 0 0 calc(var(--r) + 2px) calc(var(--r) + 2px); }
@@ -159,6 +154,33 @@ select.sel { border: 1px solid var(--line); background: var(--panel); border-rad
 .msg.err { color: var(--danger); }
 #fallbackImg { image-rendering: pixelated; border: 1px solid var(--line); background: var(--sunk); max-width: 100%; }
 textarea#recipe { width: 100%; min-height: 90px; font-family: var(--f-mono); font-size: 11.5px; border: 1px solid var(--line); border-radius: var(--r); background: var(--sunk); padding: 8px; resize: vertical; }
+.target { position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; padding: 8px 14px; background: var(--accent-soft); border-bottom: 1px solid var(--line); font-size: 13px; }
+.target b { font-weight: 600; }
+.target.own { background: color-mix(in srgb, var(--ochre) 22%, var(--panel)); }
+.layers { display: grid; gap: 6px; }
+.layer { border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); }
+.layer.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.layer.off .lhead input.lname { color: var(--muted); text-decoration: line-through; }
+.lhead { display: flex; gap: 6px; align-items: center; padding: 6px 8px; cursor: pointer; }
+.lhead input.lname { flex: 1; min-width: 0; width: 40px; border: 1px solid transparent; background: transparent; border-radius: 4px; padding: 2px 4px; font-weight: 500; }
+.lhead input.lname:focus { border-color: var(--line); background: var(--sunk); }
+.ibtn { border: 1px solid var(--line); background: var(--panel); border-radius: 4px; padding: 1px 6px; font-size: 12px; cursor: pointer; line-height: 1.6; color: var(--muted); }
+.ibtn:hover { color: var(--ink); border-color: var(--muted); }
+.ibtn[aria-pressed="true"] { background: var(--accent-soft); color: var(--ink); }
+.ibtn.danger:hover { color: var(--danger); border-color: var(--danger); }
+.lbody { display: grid; gap: 6px; padding: 0 8px 8px; }
+.lbody select { border: 1px solid var(--line); background: var(--panel); border-radius: 4px; padding: 3px 6px; font-size: 12.5px; width: 100%; }
+.el { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; gap: 6px; align-items: center; padding: 4px; border-radius: 4px; background: var(--sunk); }
+.el.sel { outline: 1px solid var(--accent); }
+.el.off { opacity: .55; }
+.el canvas { width: 34px; height: 34px; object-fit: contain; image-rendering: pixelated; background: var(--check-b); border-radius: 3px; }
+.el .ename { font-family: var(--f-mono); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.el .etools { display: flex; gap: 3px; flex-wrap: wrap; justify-content: flex-end; }
+.el .xy { grid-column: 2 / -1; display: flex; gap: 6px; align-items: center; font-size: 11.5px; color: var(--muted); }
+.el .xy { flex-wrap: wrap; }
+.el .xy input { width: 58px; border: 1px solid var(--line); background: var(--panel); border-radius: 4px; padding: 1px 4px; font-family: var(--f-mono); font-size: 11.5px; }
+.compview { cursor: grab; touch-action: none; }
+.compview.dragging { cursor: grabbing; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 
@@ -173,12 +195,14 @@ textarea#recipe { width: 100%; min-height: 90px; font-family: var(--f-mono); fon
     <button class="tab" role="tab" data-type="decoracion">Decoración</button>
     <button class="tab" role="tab" data-type="objeto">Objeto</button>
     <button class="tab" role="tab" data-type="personaje">Personaje</button>
+    <button class="tab" role="tab" data-type="paisaje">Paisaje</button>
     <button class="tab" role="tab" data-type="boss">Boss</button>
   </nav>
 </header>
 
 <main class="layout">
   <aside class="controls" aria-label="Ajustes">
+    <div class="target" id="target" hidden></div>
     <details class="group" open>
       <summary>Foto</summary>
       <div class="body">
@@ -188,6 +212,39 @@ textarea#recipe { width: 100%; min-height: 90px; font-family: var(--f-mono); fon
           <input type="file" id="file" accept="image/*">
         </label>
         <div class="fname" id="fname">Ejemplo: adoquines generados</div>
+      </div>
+    </details>
+
+    <details class="group" open id="gLayers">
+      <summary>Capas</summary>
+      <div class="body">
+        <p class="hint">Mete una carpeta o un zip y cada imagen entra en su propia capa. Arrástralas en la vista para colocarlas y tira de sus esquinas para escalarlas.</p>
+        <div class="row">
+          <label class="btn small" for="layFolder">Importar carpeta</label>
+          <input type="file" id="layFolder" webkitdirectory multiple hidden>
+          <label class="btn small" for="layFiles">Importar zip o imágenes</label>
+          <input type="file" id="layFiles" accept="image/*,.zip,application/zip" multiple hidden>
+          <button class="btn small" id="layNew" type="button">Nueva capa</button>
+        </div>
+        <div class="layers" id="layers"></div>
+        <div id="compTools" hidden>
+          <label for="compScale" class="hint">Tamaño de las piezas</label>
+          <select class="sel" id="compScale">
+            <option value="prop">Proporcional al original</option>
+            <option value="igual">Todas del mismo alto</option>
+          </select>
+          <p class="hint">Proporcional: la pieza más alta mide lo que diga el diseño y las demás en proporción. Cada pieza tiene además su propia escala.</p>
+          <label class="check"><input type="checkbox" id="snap16" checked> Al arrastrar, encajar en la cuadrícula de 16</label>
+          <div class="row">
+            <button class="btn small" id="layPack" type="button">Organizar en tilemap</button>
+          </div>
+          <div class="row">
+            <button class="btn small" id="layExportPieces" type="button">Exportar cada pieza (zip)</button>
+            <label class="check"><input type="checkbox" id="keepSize" checked> Con el tamaño original de cada pieza</label>
+          </div>
+          <p class="hint">«Guardar PNG» en Exportar saca la composición tal como está colocada.</p>
+          <p class="msg" id="layMsg"></p>
+        </div>
       </div>
     </details>
 
@@ -236,12 +293,21 @@ textarea#recipe { width: 100%; min-height: 90px; font-family: var(--f-mono); fon
     <details class="group" open id="gPixel">
       <summary>Píxeles</summary>
       <div class="body">
-        <div class="ctl"><label for="size" id="sizeLabel">Tamaño</label><output data-for="size"></output><input type="range" id="size" data-p="size" min="8" max="256" step="8"></div>
+        <div class="ctl"><label for="size" id="sizeLabel">Tamaño</label><output data-for="size"></output><input type="range" id="size" data-p="size" min="8" max="512" step="8"></div>
         <div class="ctl"><label for="levels">Tonos (posterizar)</label><output data-for="levels"></output><input type="range" id="levels" data-p="levels" min="2" max="12" step="1"></div>
         <div class="ctl"><label for="keepDark">Conservar líneas oscuras</label><output data-for="keepDark"></output><input type="range" id="keepDark" data-p="keepDark" min="0" max="1" step="0.05"></div>
         <div class="ctl" id="alphaWrap"><label for="alphaTh">Recorte de la silueta</label><output data-for="alphaTh"></output><input type="range" id="alphaTh" data-p="alphaTh" min="0.1" max="0.9" step="0.05"></div>
         <label class="check" id="outlineWrap"><input type="checkbox" id="outline" data-p="outline"> Contorno oscuro de 1 píxel</label>
         <label class="check"><input type="checkbox" id="pad16" data-p="pad16"> Lienzo en múltiplos de 16 (tiles de Godot)</label>
+      </div>
+    </details>
+
+    <details class="group" open id="gFog" hidden>
+      <summary>Lejanía</summary>
+      <div class="body">
+        <p class="hint">Mezcla los colores con el del aire: cuanto más lejos esté un plano, más neblina. Ponle a cada capa la suya.</p>
+        <div class="ctl"><label for="niebla">Neblina</label><output data-for="niebla"></output><input type="range" id="niebla" data-p="niebla" min="0" max="0.9" step="0.05"></div>
+        <div class="row"><label for="nieblaColor" class="hint">Color del aire</label><input type="color" id="nieblaColor" data-p="nieblaColor" aria-label="Color del aire"></div>
       </div>
     </details>
 
@@ -331,7 +397,21 @@ textarea#recipe { width: 100%; min-height: 90px; font-family: var(--f-mono); fon
         <h2 id="resTitle">Resultado</h2>
         <span class="mode-pill" id="modePill">Pixel art</span>
         <span class="dims" id="dims"></span>
+        <div class="seg" role="group" aria-label="Editar">
+          <button type="button" id="bUndo" title="Deshacer (Ctrl+Z)">Deshacer</button>
+          <button type="button" id="bRedo" title="Rehacer (Ctrl+Y o Ctrl+Mayús+Z)">Rehacer</button>
+        </div>
+        <div class="seg" role="group" aria-label="Portapapeles">
+          <button type="button" id="bCut" title="Cortar la pieza o capa seleccionada (Ctrl+X)">Cortar</button>
+          <button type="button" id="bCopy" title="Copiar la pieza o capa seleccionada (Ctrl+C)">Copiar</button>
+          <button type="button" id="bPaste" title="Pegar (Ctrl+V). También pega imágenes copiadas de fuera">Pegar</button>
+        </div>
+        <span class="msg" id="editMsg" role="status" aria-live="polite"></span>
         <div class="viewtools">
+          <div class="seg" role="group" aria-label="Qué ver" id="stageSeg" hidden>
+            <button type="button" id="sFoto" aria-pressed="false">Foto</button>
+            <button type="button" id="sComp" aria-pressed="true">Composición</button>
+          </div>
           <div class="seg" role="group" aria-label="Ver">
             <button type="button" id="vColor" aria-pressed="true">Color</button>
             <button type="button" id="vGray" aria-pressed="false">Gris</button>
@@ -406,6 +486,7 @@ const BASE = {
   bossSize: 640, smooth: 3, softEdge: true,
   mode: "pixel", palette: "neg-adoq", stops: null,
   hoja: "textura", zocalo: "#d9a441", radio: 4, mordida: 0.5,
+  niebla: 0, nieblaColor: "#dfe6ee",
 };
 const TYPES = {
   suelo:      { label: "Suelo",      p: { palette: "neg-adoq" } },
@@ -413,6 +494,7 @@ const TYPES = {
   decoracion: { label: "Decoración", p: { square: false, bgOn: true, size: 64, outline: true, pad16: true, gamma: 1.25, keepDark: 0.2, palette: "neg-veg" } },
   objeto:     { label: "Objeto",     p: { square: false, bgOn: true, size: 48, outline: true, pad16: true, keepDark: 0.5, palette: "neg-madera" } },
   personaje:  { label: "Personaje",  p: { square: false, bgOn: true, size: 32, outline: true, pad16: true, median: 2, keepDark: 0.3, palette: "neg-terracota" } },
+  paisaje:    { label: "Paisaje",    p: { square: false, size: 144, levels: 7, median: 3, curve: 0.4, keepDark: 0.1, palette: "neg-sepia" } },
   boss:       { label: "Boss",       p: { mode: "boss", square: false, bgOn: true, median: 6, smooth: 3, levels: 3, curve: 0.6, palette: "boss-pizarra" } },
 };
 
@@ -467,6 +549,16 @@ const GUIDES = {
     ],
     godot: "CharacterBody2D con un Sprite2D (o AnimatedSprite2D cuando haya fotogramas) y una colisión pequeña en los pies.",
   },
+  paisaje: {
+    t: "Paisaje", tip: "fondos y horizontes",
+    li: [
+      "Foto ancha, con el horizonte recto. Para el fondo de una escena interesan los planos lejanos: cielo, sierra, olivares.",
+      "Separa los planos en capas (cielo, montes, árboles cercanos) y mételos con «Importar carpeta». Cada capa puede llevar su paleta y su neblina.",
+      "Cuanto más lejos, más neblina y menos contraste: es lo que da profundidad. Los planos cercanos, sin neblina y con la línea oscura.",
+      "El tamaño es el alto. 144 o 180 px suelen bastar para un fondo; el ancho sale solo de la foto.",
+    ],
+    godot: "Un Parallax2D por plano (o ParallaxBackground con ParallaxLayer). El lejano con Scroll Scale bajo (0.2), el cercano alto (0.8). Repeat Size en el ancho de la imagen si se repite.",
+  },
   boss: {
     t: "Boss", tip: "sin píxeles, formas talladas",
     li: [
@@ -497,7 +589,7 @@ function loadSaved(t) {
   try { const s = localStorage.getItem("calypixel:" + t); if (s) return Object.assign(defaultsFor(t), JSON.parse(s)); } catch (e) {}
   return defaultsFor(t);
 }
-function save() { try { localStorage.setItem("calypixel:" + type, JSON.stringify(P)); localStorage.setItem("calypixel:type", type); } catch (e) {} }
+function save() { if (capaEditada) return; try { localStorage.setItem("calypixel:" + type, JSON.stringify(P)); localStorage.setItem("calypixel:type", type); } catch (e) {} }
 
 /* ---------- imagen de ejemplo: adoquines que se repiten ---------- */
 function makeSample() {
@@ -602,6 +694,12 @@ function paletteColors(stops, n) {
   return out;
 }
 
+function conNiebla(cols) {
+  if (!(P.niebla > 0)) return cols;
+  const f = hexToRgb(P.nieblaColor || "#dfe6ee"), t = P.niebla;
+  return cols.map((c) => c.map((v, i) => v + (f[i] - v) * t));
+}
+
 /* ---------- etapas con caché ---------- */
 let cacheA = null, cacheB = null;
 const WMAX = 1024;
@@ -686,7 +784,7 @@ function stageB(A) {
   const key = [A.key, P.hp, P.inB, P.inW, P.gamma, P.outB, P.outW, P.median, P.curve, P.autoLv].join("|");
   if (cacheB && cacheB.key === key) return cacheB;
   const pre = preLevels(A);
-  if (P.autoLv) { autoLevels(A, pre); syncControls(); }
+  if (P.autoLv) { autoLevels(A, pre); if (!enCapa) syncControls(); }
   const n = A.w * A.h, t8 = new Uint8ClampedArray(n);
   const inR = Math.max(1, P.inW - P.inB), g = 1 / P.gamma;
   for (let i = 0; i < n; i++) {
@@ -705,7 +803,7 @@ function stageB(A) {
 }
 
 /* ---------- etapa final ---------- */
-const outColor = document.createElement("canvas"), outGray = document.createElement("canvas");
+let outColor = document.createElement("canvas"), outGray = document.createElement("canvas");
 let outInfo = { w: 0, h: 0, cw: 0, ch: 0 };
 let lastPix = null, sheetOn = false;
 
@@ -739,7 +837,7 @@ function stagePixel(A, B) {
     }
     for (const o of edge) idx[o] = 0;
   }
-  const cols = paletteColors(P.stops, N);
+  const cols = conNiebla(paletteColors(P.stops, N));
   lastPix = { idx, alpha, CW, CH, N, cols };
   paint(outColor, CW, CH, (o) => cols[idx[o]], alpha);
   paint(outGray, CW, CH, (o) => { const g = idx[o] * 255 / (N - 1); return [g, g, g]; }, alpha);
@@ -760,7 +858,7 @@ function stageBoss(A, B) {
     idx[i] = Math.round(clamp(t[i], 0, 255) / 255 * (N - 1));
     alpha[i] = A.mask ? (P.softEdge ? clamp(A.mask[i] * 255, 0, 255) : (A.mask[i] > 0.5 ? 255 : 0)) : 255;
   }
-  const cols = paletteColors(P.stops, N);
+  const cols = conNiebla(paletteColors(P.stops, N));
   const tmpC = document.createElement("canvas"), tmpG = document.createElement("canvas");
   paint(tmpC, W, H, (o) => cols[idx[o]], alpha);
   paint(tmpG, W, H, (o) => { const g = idx[o] * 255 / (N - 1); return [g, g, g]; }, alpha);
@@ -889,26 +987,32 @@ function buildSheet() {
 /* ---------- vista previa ---------- */
 const viewC = $("view"), viewport = $("viewport");
 function drawView() {
-  const boss = P.mode === "boss";
-  const src = view === "gray" ? outGray : outColor;
-  const tiles = $("vTile").checked && !boss && !sheetOn ? 3 : 1;
+  const comp = enComposicion();
+  const boss = comp ? compBoss : P.mode === "boss";
+  const src = comp ? (view === "gray" ? compG : compC) : view === "gray" ? outGray : outColor;
+  const tiles = $("vTile").checked && !boss && !sheetOn && !comp ? 3 : 1;
   const w = src.width * tiles, h = src.height * tiles;
   viewC.width = w; viewC.height = h;
   const cx = viewC.getContext("2d"); cx.imageSmoothingEnabled = false; cx.clearRect(0, 0, w, h);
   for (let j = 0; j < tiles; j++) for (let i = 0; i < tiles; i++) cx.drawImage(src, i * src.width, j * src.height);
   viewC.classList.toggle("pixel", !boss);
+  viewC.classList.toggle("compview", comp);
   const availW = Math.max(100, viewport.clientWidth - 32), availH = Math.max(320, Math.min(720, window.innerHeight * 0.68));
   let z = $("vZoom").value;
   if (z === "auto") {
     const fit = Math.min(availW / w, availH / h);
     z = boss ? Math.min(1, fit) : Math.max(1, Math.floor(fit));
   } else z = +z;
+  if (comp && arrastre) z = vistaZoom;
+  viewport.style.placeItems = comp ? "start" : "";
   viewC.style.width = Math.round(w * z) + "px"; viewC.style.height = Math.round(h * z) + "px";
   const bg = $("vBg").value;
   viewport.classList.toggle("checker", bg === "checker");
   viewport.style.background = bg === "checker" ? "" : bg;
-  const tilesTxt = P.mode === "boss" ? "" : ` · ${outInfo.cw / 16 % 1 === 0 && outInfo.ch / 16 % 1 === 0 ? (outInfo.cw / 16) + "×" + (outInfo.ch / 16) + " tiles" : "no encaja en tiles de 16"}`;
-  $("dims").textContent = `${outInfo.cw}×${outInfo.ch} px${tilesTxt}`;
+  if (comp) { vistaZoom = z; pintarSeleccion(z); }
+  const info = comp ? { cw: compC.width, ch: compC.height } : outInfo;
+  const tilesTxt = boss ? "" : ` · ${info.cw / 16 % 1 === 0 && info.ch / 16 % 1 === 0 ? (info.cw / 16) + "×" + (info.ch / 16) + " tiles" : "no encaja en tiles de 16"}`;
+  $("dims").textContent = `${info.cw}×${info.ch} px${tilesTxt}` + (comp ? ` · ${contarPiezas()} piezas` : "");
 }
 function drawSource(A) {
   const c = $("src"), sc = Math.min(1, 640 / Math.max(A.w, A.h));
@@ -933,19 +1037,25 @@ function schedule() {
 function run() {
   pending = false;
   try {
-    const A = stageA(), B = stageB(A);
-    sheetOn = false;
-    if (P.mode === "boss") stageBoss(A, B); else { stagePixel(A, B); buildSheet(); }
-    drawView(); drawSource(A); renderSwatches(); updateFallback(); updateRecipe(); syncName(); save();
+    if (enComposicion()) {
+      pintarComposicion();
+      drawView(); renderSwatches(); updateRecipe(); syncName(); save(); refrescarMiniaturas(); programarHistoria();
+    } else {
+      if (capaEditada) { P = mainP; capaEditada = null; syncControls(); }
+      const A = stageA(), B = stageB(A);
+      sheetOn = false;
+      if (P.mode === "boss") stageBoss(A, B); else { stagePixel(A, B); buildSheet(); }
+      drawView(); drawSource(A); renderSwatches(); updateFallback(); updateRecipe(); syncName(); save(); programarHistoria();
+    }
   } catch (e) { console.error(e); }
   $("busy").hidden = true;
 }
 
 /* ---------- controles ---------- */
-const NUM_KEYS = new Set(["cropL","cropR","cropT","cropB","bgTol","bgEdge","inB","inW","outB","outW","gamma","hp","median","curve","size","levels","keepDark","alphaTh","bossSize","smooth","radio","mordida"]);
+const NUM_KEYS = new Set(["cropL","cropR","cropT","cropB","bgTol","bgEdge","inB","inW","outB","outW","gamma","hp","median","curve","size","levels","keepDark","alphaTh","bossSize","smooth","radio","mordida","niebla"]);
 const FMT = { gamma: (v) => v.toFixed(2), curve: (v) => v.toFixed(2), keepDark: (v) => v.toFixed(2), alphaTh: (v) => v.toFixed(2),
   cropL: (v) => v + "%", cropR: (v) => v + "%", cropT: (v) => v + "%", cropB: (v) => v + "%", bgTol: (v) => v + "%", hp: (v) => v ? v + " px" : "no",
-  median: (v) => v ? "radio " + v : "no", radio: (v) => v ? v + " px" : "recto", mordida: (v) => v ? Math.round(v * 100) + " %" : "no", smooth: (v) => v ? v : "no", size: (v) => v + " px", bossSize: (v) => v + " px" };
+  median: (v) => v ? "radio " + v : "no", radio: (v) => v ? v + " px" : "recto", mordida: (v) => v ? Math.round(v * 100) + " %" : "no", smooth: (v) => v ? v : "no", size: (v) => v + " px", bossSize: (v) => v + " px", niebla: (v) => v ? Math.round(v * 100) + " %" : "no" };
 function syncControls() {
   document.querySelectorAll("[data-p]").forEach((el) => {
     const k = el.dataset.p; if (!(k in P)) return;
@@ -965,7 +1075,9 @@ function syncControls() {
   $("outlineWrap").style.opacity = alphaOn ? 1 : 0.5; $("outline").disabled = !alphaOn;
   $("alphaWrap").hidden = !alphaOn;
   $("vTile").disabled = boss || P.hoja !== "textura";
-  $("gSheet").hidden = boss;
+  $("gSheet").hidden = boss || !!capaEditada;
+  $("gFog").hidden = !(type === "paisaje" || P.niebla > 0);
+  pintarDestino();
   $("sheetOpts").hidden = P.hoja === "textura";
   $("zocWrap").hidden = P.hoja !== "pared";
   $("radioWrap").hidden = $("mordWrap").hidden = P.hoja !== "bloque";
@@ -1032,7 +1144,7 @@ function renderSwatches() {
 
 /* pestañas */
 function setType(t, fromUser) {
-  type = t; P = loadSaved(t); nameEdited = false;
+  type = t; P = loadSaved(t); mainP = P; capaEditada = null; nameEdited = false;
   document.querySelectorAll(".tab").forEach((b) => b.setAttribute("aria-selected", b.dataset.type === t ? "true" : "false"));
   $("vTile").checked = t === "suelo" || t === "pared";
   $("resTitle").textContent = "Resultado · " + TYPES[t].label;
@@ -1043,8 +1155,10 @@ function setType(t, fromUser) {
 $("tabs").addEventListener("click", (e) => { const b = e.target.closest(".tab"); if (b) setType(b.dataset.type, true); });
 $("resetType").addEventListener("click", () => {
   try { localStorage.removeItem("calypixel:" + type); } catch (e) {}
-  P = defaultsFor(type); cacheA = null; cacheB = null; syncControls(); schedule();
-  $("recipeMsg").textContent = "Valores por defecto de " + TYPES[type].label + ".";
+  P = capaEditada ? Object.assign({}, mainP) : defaultsFor(type);
+  if (capaEditada) capaEditada.P = P; else mainP = P;
+  cacheA = null; cacheB = null; syncControls(); schedule();
+  $("recipeMsg").textContent = capaEditada ? "La capa copia otra vez los valores del diseño principal (sigue con valores propios)." : "Valores por defecto de " + TYPES[type].label + ".";
 });
 function renderGuide() {
   const g = GUIDES[type];
@@ -1089,17 +1203,21 @@ $("file").addEventListener("change", (e) => loadFile(e.target.files[0]));
 const drop = $("drop");
 ["dragenter", "dragover"].forEach((ev) => document.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add("drag"); }));
 ["dragleave", "drop"].forEach((ev) => document.addEventListener(ev, (e) => { e.preventDefault(); if (ev === "drop" || e.target === document.documentElement) drop.classList.remove("drag"); }));
-document.addEventListener("drop", (e) => { const f = e.dataTransfer && e.dataTransfer.files[0]; if (f) loadFile(f); });
-document.addEventListener("paste", (e) => {
-  const it = [...(e.clipboardData ? e.clipboardData.items : [])].find((i) => i.type.startsWith("image/"));
-  if (it) loadFile(it.getAsFile());
+document.addEventListener("drop", (e) => {
+  const dt = e.dataTransfer; if (!dt) return;
+  const entradas = [...(dt.items || [])].filter((i) => i.kind === "file").map((i) => i.webkitGetAsEntry && i.webkitGetAsEntry()).filter(Boolean);
+  const files = [...dt.files];
+  const aCapas = entradas.some((en) => en.isDirectory) || files.length > 1 || files.some(esZip);
+  if (aCapas) importarEntradas(entradas.length ? entradas : null, files);
+  else if (files[0]) loadFile(files[0]);
 });
+
 
 /* exportar */
 let downloads = null;
 const dlMsg = $("dlMsg");
 function exportCanvas(src) {
-  const s = P.mode === "boss" ? 1 : +$("expScale").value;
+  const s = (enComposicion() ? compBoss : P.mode === "boss") ? 1 : +$("expScale").value;
   const c = document.createElement("canvas"); c.width = src.width * s; c.height = src.height * s;
   const cx = c.getContext("2d"); cx.imageSmoothingEnabled = false; cx.drawImage(src, 0, 0, c.width, c.height);
   return c;
@@ -1108,6 +1226,7 @@ let nameEdited = false;
 function autoName() {
   const pal = P.palette && P.palette !== "custom" ? P.palette : "paleta";
   const suf = sheetOn ? (P.hoja === "pared" ? "_piezas" : "_bordes") : "";
+  if (enComposicion()) return `${compNombre}_${type}_composicion`;
   return `${baseName}_${type}_${pal}${suf}`;
 }
 function syncName() { if (!nameEdited) $("outName").value = autoName(); }
@@ -1127,7 +1246,7 @@ function plainDownload(c, name) {
   }, "image/png");
 }
 async function doSave(kind) {
-  const c = exportCanvas(kind === "gris" ? outGray : outColor);
+  const c = exportCanvas(enComposicion() ? (kind === "gris" ? compG : compC) : kind === "gris" ? outGray : outColor);
   if (!downloads) { plainDownload(c, fileName(kind)); return; }
   c.toBlob(async (blob) => {
     try {
@@ -1151,7 +1270,9 @@ if (window.claude && typeof window.claude.use === "function") {
 
 /* receta */
 function updateRecipe() {
-  const r = Object.assign({ tipo: type }, P); delete r.autoLv;
+  const r = Object.assign({ tipo: type }, capaEditada ? P : mainP); delete r.autoLv;
+  if (comp.layers.length && !capaEditada) r.capas = comp.layers.map((l) => ({ nombre: l.name, hereda: l.inherit, visible: l.visible, valores: l.inherit ? undefined : l.P,
+    piezas: l.els.map((e) => ({ nombre: e.name, x: e.x, y: e.y, volteoH: e.fh, volteoV: e.fv, visible: e.visible })) }));
   if (document.activeElement !== $("recipe")) $("recipe").value = JSON.stringify(r);
 }
 $("copyRecipe").addEventListener("click", () => {
@@ -1163,14 +1284,622 @@ $("copyRecipe").addEventListener("click", () => {
 $("applyRecipe").addEventListener("click", () => {
   try {
     const r = JSON.parse($("recipe").value);
-    const t = r.tipo && TYPES[r.tipo] ? r.tipo : type; delete r.tipo;
-    if (t !== type) setType(t);
+    let t = r.tipo && TYPES[r.tipo] ? r.tipo : type; delete r.tipo; delete r.capas;
+    if (capaEditada) t = type;                 // la receta va a la capa que estás editando
+    else if (t !== type) setType(t);
     P = Object.assign(defaultsFor(t), { autoLv: false }, r);
+    if (capaEditada) capaEditada.P = P; else mainP = P;
     if (!Array.isArray(P.stops) || P.stops.length < 1) P.stops = PAL[TYPES[t].p.palette].stops.slice();
     cacheA = null; cacheB = null; syncControls(); schedule();
     $("recipeMsg").className = "msg"; $("recipeMsg").textContent = "Receta aplicada.";
   } catch (e) { $("recipeMsg").className = "msg err"; $("recipeMsg").textContent = "Ese texto no es una receta válida. Copia el JSON completo, con sus llaves."; }
 });
+
+/* ---------- capas y composición ---------- */
+// Cada capa tiene piezas (imágenes). Una capa hereda los ajustes del diseño principal o lleva los suyos.
+// Cada pieza pasa por la misma receta que la foto principal y se coloca en la composición.
+const comp = { layers: [], selL: null, selE: null };
+let enCapa = false, capaEditada = null, mainP = null, compBoss = false, compNombre = "capas", vistaZoom = 1, arrastre = null;
+let stageVista = "comp";
+const compC = document.createElement("canvas"), compG = document.createElement("canvas");
+let compRects = [];
+let nid = 1;
+
+function enComposicion() { return comp.layers.length > 0 && stageVista === "comp"; }
+function contarPiezas() { return comp.layers.reduce((n, l) => n + (l.visible ? l.els.filter((e) => e.visible).length : 0), 0); }
+function esZip(f) { return /\.zip$/i.test(f.name || "") || f.type === "application/zip" || f.type === "application/x-zip-compressed"; }
+const esImagen = (n) => /\.(png|jpe?g|webp|gif|bmp)$/i.test(n);
+const limpio = (n) => (n || "").replace(/^.*[\\/]/, "").replace(/\.[^.]+$/, "").replace(/[^\w\-]+/g, "_").slice(0, 40) || "pieza";
+
+function nuevaCapa(nombre) {
+  const l = { id: nid++, name: nombre || "Capa " + (comp.layers.length + 1), visible: true, inherit: true, P: null, els: [] };
+  comp.layers.push(l); return l;
+}
+function nuevoElemento(capa, nombre, rec) {
+  const e = { id: nid++, name: nombre, src: rec.c, offX: rec.offX, offY: rec.offY, w0: rec.w0, h0: rec.h0,
+    x: 0, y: 0, fh: false, fv: false, visible: true, escala: 100, cache: null, cA: null, cB: null, thumb: null };
+  capa.els.push(e); elReg[e.id] = e; return e;
+}
+
+/* lectura de archivos */
+async function aCanvas(blob) {
+  const bmp = await createImageBitmap(blob);
+  const c = document.createElement("canvas"); c.width = bmp.width; c.height = bmp.height;
+  c.getContext("2d").drawImage(bmp, 0, 0); if (bmp.close) bmp.close();
+  return c;
+}
+function recortar(c) {   // quita los márgenes transparentes, recordando dónde estaba la pieza
+  const w = c.width, h = c.height, d = c.getContext("2d", { willReadFrequently: true }).getImageData(0, 0, w, h).data;
+  let x0 = w, y0 = h, x1 = -1, y1 = -1;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (d[(y * w + x) * 4 + 3] > 8) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+  if (x1 < 0 || (x0 === 0 && y0 === 0 && x1 === w - 1 && y1 === h - 1)) return { c, offX: 0, offY: 0, w0: w, h0: h };
+  const r = document.createElement("canvas"); r.width = x1 - x0 + 1; r.height = y1 - y0 + 1;
+  r.getContext("2d").drawImage(c, -x0, -y0);
+  return { c: r, offX: x0, offY: y0, w0: w, h0: h };
+}
+async function leerZip(file) {
+  if (!window.JSZip) throw new Error("No se ha podido cargar el lector de zips. Descomprímelo e importa la carpeta.");
+  const z = await JSZip.loadAsync(file), out = [];
+  for (const ent of Object.values(z.files)) {
+    const base = ent.name.split("/").pop();
+    if (ent.dir || !esImagen(ent.name) || ent.name.includes("__MACOSX/") || base.startsWith(".")) continue;
+    out.push({ name: ent.name, blob: await ent.async("blob") });
+  }
+  return out;
+}
+async function recorrer(entry, out) {
+  if (entry.isFile) out.push(await new Promise((ok, mal) => entry.file(ok, mal)));
+  else if (entry.isDirectory) {
+    const r = entry.createReader();
+    for (;;) { const lote = await new Promise((ok, mal) => r.readEntries(ok, mal)); if (!lote.length) break; for (const c of lote) await recorrer(c, out); }
+  }
+}
+async function importarEntradas(entradas, files) {
+  let lista = [];
+  if (entradas) {
+    for (const en of entradas) await recorrer(en, lista);
+    const carpeta = entradas.find((en) => en.isDirectory);
+    if (carpeta) compNombre = limpio(carpeta.name);
+  } else lista = files;
+  await importarArchivos(lista, null);
+}
+async function importarArchivos(lista, destino) {
+  const msg = $("layMsg"); $("compTools").hidden = false; msg.className = "msg"; msg.textContent = "Leyendo…";
+  const imgs = [];
+  for (const f of lista) {
+    try {
+      if (esZip(f)) { compNombre = limpio(f.name); imgs.push(...await leerZip(f)); }
+      else if ((f.type || "").startsWith("image/") || esImagen(f.name)) imgs.push({ name: f.webkitRelativePath || f.name, blob: f });
+    } catch (e) { msg.className = "msg err"; msg.textContent = e.message || "No se pudo leer " + f.name; return; }
+  }
+  if (!destino && lista[0] && lista[0].webkitRelativePath) compNombre = limpio(lista[0].webkitRelativePath.split("/")[0]);
+  imgs.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+  const estabaVacia = !comp.layers.some((l) => l.els.length);
+  const nuevos = [];
+  for (const it of imgs) {
+    try {
+      const rec = recortar(await aCanvas(it.blob));
+      const capa = destino || nuevaCapa(limpio(it.name));
+      nuevos.push([capa, nuevoElemento(capa, limpio(it.name), rec)]);
+    } catch (e) { /* imagen rota: se salta */ }
+  }
+  if (!nuevos.length) { msg.className = "msg err"; msg.textContent = "No había imágenes que leer (PNG, JPG, WebP o GIF)."; return; }
+  stageVista = "comp";
+  if (estabaVacia) organizar();
+  else {   // las nuevas, a la derecha de lo que ya hay
+    let x = 0; for (const q of compRects) x = Math.max(x, q.x + q.w);
+    x = Math.ceil(x / 16) * 16 + 16;
+    for (const [capa, el] of nuevos) { const o = procesar(capa, el); el.x = x; el.y = 0; x += Math.ceil(o.c.width / 16) * 16 + 16; }
+  }
+  const [capa0, el0] = nuevos[nuevos.length - 1];
+  comp.selL = capa0; comp.selE = el0;
+  msg.textContent = `${nuevos.length} ${nuevos.length === 1 ? "imagen importada" : "imágenes importadas"}` + (destino ? ` en «${destino.name}».` : ", cada una en su capa.");
+  renderCapas(); syncControls(); schedule();
+}
+
+/* procesar una pieza con los ajustes de su capa */
+function paramsDe(capa) {
+  const base = capa.inherit || !capa.P ? mainP : capa.P;
+  const p = Object.assign({}, base, { hoja: "textura" });
+  if (capa.inherit) Object.assign(p, { square: false, cropL: 0, cropR: 0, cropT: 0, cropB: 0 });
+  return p;
+}
+function alturaMax() { let m = 1; for (const l of comp.layers) for (const e of l.els) m = Math.max(m, e.src.height); return m; }
+function paramsDeElemento(capa, el) {
+  const p = paramsDe(capa);
+  const f = ($("compScale").value === "prop" ? el.src.height / alturaMax() : 1) * (el.escala || 100) / 100;
+  if (p.mode === "boss") p.bossSize = Math.max(16, Math.round(p.bossSize * f));
+  else p.size = Math.max(4, Math.round(p.size * f));
+  return p;
+}
+function procesar(capa, el) {
+  const prm = paramsDeElemento(capa, el), key = JSON.stringify(prm);
+  if (el.cache && el.cache.key === key) return el.cache;
+  const sv = { P, img, imgId, cacheA, cacheB, lastPix, outInfo, sheetOn, outColor, outGray };
+  enCapa = true;
+  try {
+    P = prm; img = el.src; imgId = "pieza" + el.id; cacheA = el.cA; cacheB = el.cB;
+    outColor = document.createElement("canvas"); outGray = document.createElement("canvas");
+    const A = stageA(), B = stageB(A);
+    if (P.mode === "boss") stageBoss(A, B); else stagePixel(A, B);
+    el.cA = cacheA; el.cB = cacheB;
+    el.cache = { key, c: outColor, g: outGray, boss: P.mode === "boss" };
+  } finally {
+    ({ P, img, imgId, cacheA, cacheB, lastPix, outInfo, sheetOn, outColor, outGray } = sv);
+    enCapa = false;
+  }
+  return el.cache;
+}
+
+/* pintar la composición tal como está colocada */
+function dibujarPieza(ctx, el, src, x, y) {
+  ctx.save();
+  ctx.translate(x + (el.fh ? src.width : 0), y + (el.fv ? src.height : 0));
+  ctx.scale(el.fh ? -1 : 1, el.fv ? -1 : 1);
+  ctx.drawImage(src, 0, 0);
+  ctx.restore();
+}
+function pintarComposicion() {
+  const piezas = [];
+  for (const capa of comp.layers) {
+    if (!capa.visible) continue;
+    for (const el of capa.els) if (el.visible) piezas.push({ el, o: procesar(capa, el) });
+  }
+  compBoss = piezas.some((p) => p.o.boss);
+  let W = 16, H = 16;
+  for (const { el, o } of piezas) { W = Math.max(W, el.x + o.c.width); H = Math.max(H, el.y + o.c.height); }
+  if (!compBoss) { W = Math.ceil(W / 16) * 16; H = Math.ceil(H / 16) * 16; }
+  for (const [dst, k] of [[compC, "c"], [compG, "g"]]) {
+    dst.width = W; dst.height = H;
+    const cx = dst.getContext("2d"); cx.imageSmoothingEnabled = false; cx.clearRect(0, 0, W, H);
+    for (const { el, o } of piezas) dibujarPieza(cx, el, o[k], el.x, el.y);
+  }
+  compRects = piezas.map(({ el, o }) => ({ el, x: el.x, y: el.y, w: o.c.width, h: o.c.height }));
+}
+function pintarSeleccion() {
+  const q = compRects.find((r) => r.el === comp.selE);
+  if (!q) return;
+  const cx = viewC.getContext("2d");
+  cx.save(); cx.strokeStyle = "#2945c4"; cx.lineWidth = Math.max(1, Math.round(1 / Math.max(vistaZoom, 0.01)));
+  cx.setLineDash([3, 2]); cx.strokeRect(q.x + 0.5, q.y + 0.5, q.w - 1, q.h - 1);
+  viewC.dataset.sel = [q.x, q.y, q.w, q.h].join(",");
+  // tiradores de las esquinas para escalar
+  const t = tamTirador();
+  cx.setLineDash([]); cx.fillStyle = "#ffffff";
+  for (const [x, y] of esquinas(q)) { cx.fillRect(x - t / 2, y - t / 2, t, t); cx.strokeRect(x - t / 2 + 0.5, y - t / 2 + 0.5, t - 1, t - 1); }
+  cx.restore();
+}
+function tamTirador() { return Math.max(3, Math.round(9 / Math.max(vistaZoom, 0.01))); }
+function esquinas(q) { return [[q.x, q.y], [q.x + q.w, q.y], [q.x, q.y + q.h], [q.x + q.w, q.y + q.h]]; }
+function tiradorEn(p) {   // ¿el puntero está sobre una esquina de la pieza seleccionada?
+  const q = compRects.find((r) => r.el === comp.selE);
+  if (!q) return null;
+  const tol = tamTirador() * 0.9;
+  const i = esquinas(q).findIndex(([x, y]) => Math.abs(p.x - x) <= tol && Math.abs(p.y - y) <= tol);
+  return i < 0 ? null : { q, i };
+}
+
+/* organizar en un tilemap: estanterías de celdas de 16 */
+function organizar() {
+  const items = [];
+  for (const capa of comp.layers) for (const el of capa.els) {
+    const o = procesar(capa, el);
+    items.push({ el, w: Math.ceil(o.c.width / 16) * 16, h: Math.ceil(o.c.height / 16) * 16 });
+  }
+  if (!items.length) return;
+  const area = items.reduce((a, i) => a + i.w * i.h, 0);
+  const ancho = Math.max(Math.max(...items.map((i) => i.w)), Math.ceil(Math.sqrt(area * 1.25) / 16) * 16);
+  items.sort((a, b) => b.h - a.h || b.w - a.w);
+  let x = 0, y = 0, fila = 0;
+  for (const it of items) {
+    if (x > 0 && x + it.w > ancho) { x = 0; y += fila; fila = 0; }
+    it.el.x = x; it.el.y = y; x += it.w; fila = Math.max(fila, it.h);
+  }
+}
+
+/* exportar cada pieza por separado, en un zip */
+function descargarBlob(blob, name) {
+  const url = URL.createObjectURL(blob), a = document.createElement("a");
+  a.href = url; a.download = name; document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+async function exportarPiezas() {
+  const msg = $("layMsg");
+  if (!window.JSZip) { msg.className = "msg err"; msg.textContent = "No se ha podido cargar el compresor de zips."; return; }
+  const z = new JSZip(), usados = {}, mantener = $("keepSize").checked;
+  let n = 0;
+  for (const capa of comp.layers) {
+    if (!capa.visible) continue;
+    for (const el of capa.els) {
+      if (!el.visible) continue;
+      const o = procesar(capa, el), src = view === "gray" ? o.g : o.c;
+      const c = document.createElement("canvas"), cx = c.getContext("2d");
+      if (mantener) {   // mismo lienzo que la imagen original, con la pieza en su sitio
+        c.width = el.w0; c.height = el.h0; cx.imageSmoothingEnabled = o.boss;
+        const tmp = document.createElement("canvas"); tmp.width = src.width; tmp.height = src.height;
+        dibujarPieza(tmp.getContext("2d"), el, src, 0, 0);
+        cx.drawImage(tmp, el.offX, el.offY, el.src.width, el.src.height);
+      } else { c.width = src.width; c.height = src.height; dibujarPieza(cx, el, src, 0, 0); }
+      let nombre = el.name; if (usados[nombre]) nombre += "_" + (++usados[nombre]); else usados[nombre] = 1;
+      z.file(nombre + (view === "gray" ? "_gris" : "") + ".png", await new Promise((ok) => c.toBlob(ok, "image/png")));
+      n++;
+    }
+  }
+  if (!n) { msg.className = "msg err"; msg.textContent = "No hay piezas visibles que exportar."; return; }
+  const blob = await z.generateAsync({ type: "blob" }), name = `${compNombre}_piezas.zip`;
+  msg.className = "msg";
+  if (downloads) {
+    try { await downloads.save({ filename: name, data: blob }); msg.textContent = `Guardado: ${name} (${n} piezas)`; return; }
+    catch (e) { if (e && e.code === "declined") { msg.textContent = "Guardado cancelado."; return; } }
+  }
+  descargarBlob(blob, name); msg.textContent = `Descargado: ${name} (${n} piezas)`;
+}
+
+/* qué se está editando: el diseño principal o una capa con valores propios */
+function editar(capa) {
+  if (capa && !capa.inherit) { if (!capa.P) capa.P = JSON.parse(JSON.stringify(mainP)); P = capa.P; capaEditada = capa; }
+  else { P = mainP; capaEditada = null; }
+  cacheA = null; cacheB = null;
+  syncControls(); schedule();
+}
+function pintarDestino() {
+  const t = $("target"); if (!t) return;
+  if (!comp.layers.length) { t.hidden = true; return; }
+  t.hidden = false;
+  t.classList.toggle("own", !!capaEditada);
+  if (capaEditada) {
+    t.innerHTML = `<span>Editando la capa <b></b> con sus propios valores.</span> <button class="btn small" type="button">Volver al diseño principal</button>`;
+    t.querySelector("b").textContent = "«" + capaEditada.name + "»";
+    t.querySelector("button").onclick = () => { comp.selL = null; comp.selE = null; editar(null); renderCapas(); };
+  } else {
+    const n = comp.layers.filter((l) => l.inherit).length;
+    t.innerHTML = `<span>Editando el <b>diseño principal</b>${n ? ` · lo heredan ${n} ${n === 1 ? "capa" : "capas"}` : ""}.</span>`;
+  }
+}
+
+/* panel de capas */
+const ibtn = (txt, title, fn, extra) => {
+  const b = document.createElement("button"); b.type = "button"; b.className = "ibtn" + (extra ? " " + extra : ""); b.textContent = txt; b.title = title; b.setAttribute("aria-label", title);
+  b.addEventListener("click", (e) => { e.stopPropagation(); fn(); }); return b;
+};
+function seleccionar(capa, el) {
+  const antes = capaEditada;
+  comp.selL = capa; comp.selE = el || null;
+  const quiere = capa && !capa.inherit ? capa : null;
+  if (quiere !== antes) editar(quiere); else { syncControls(); schedule(); }
+  renderCapas();
+}
+function moverCapa(capa, d) {
+  const i = comp.layers.indexOf(capa), j = i + d;
+  if (j < 0 || j >= comp.layers.length) return;
+  comp.layers.splice(i, 1); comp.layers.splice(j, 0, capa); renderCapas(); schedule();
+}
+function borrarCapa(capa) {
+  comp.layers.splice(comp.layers.indexOf(capa), 1);
+  if (comp.selL === capa) { comp.selL = null; comp.selE = null; }
+  if (capaEditada === capa) editar(null);
+  if (!comp.layers.length) { stageVista = "foto"; $("compTools").hidden = true; }
+  renderCapas(); syncControls(); schedule();
+}
+function borrarPieza(capa, el) {
+  capa.els.splice(capa.els.indexOf(el), 1);
+  if (comp.selE === el) comp.selE = null;
+  renderCapas(); schedule();
+}
+const addInput = document.createElement("input");
+addInput.type = "file"; addInput.multiple = true; addInput.accept = "image/*,.zip"; addInput.hidden = true;
+document.body.append(addInput);
+let addDestino = null;
+addInput.addEventListener("change", () => { if (addInput.files.length) importarArchivos([...addInput.files], addDestino); addInput.value = ""; });
+
+function renderCapas() {
+  const box = $("layers"); box.innerHTML = "";
+  $("compTools").hidden = !comp.layers.length;
+  $("stageSeg").hidden = !comp.layers.length;
+  $("sFoto").setAttribute("aria-pressed", stageVista === "foto"); $("sComp").setAttribute("aria-pressed", stageVista === "comp");
+  [...comp.layers].reverse().forEach((capa) => {
+    const div = document.createElement("div");
+    div.className = "layer" + (comp.selL === capa ? " sel" : "") + (capa.visible ? "" : " off");
+    const head = document.createElement("div"); head.className = "lhead";
+    const ver = document.createElement("input"); ver.type = "checkbox"; ver.checked = capa.visible; ver.title = "Ver u ocultar la capa"; ver.setAttribute("aria-label", "Ver la capa " + capa.name);
+    ver.addEventListener("click", (e) => e.stopPropagation());
+    ver.addEventListener("change", () => { capa.visible = ver.checked; renderCapas(); schedule(); });
+    const nom = document.createElement("input"); nom.className = "lname"; nom.value = capa.name; nom.setAttribute("aria-label", "Nombre de la capa");
+    nom.addEventListener("click", (e) => e.stopPropagation());
+    nom.addEventListener("input", () => { capa.name = nom.value; pintarDestino(); });
+    head.append(ver, nom,
+      ibtn("↑", "Subir la capa (se pinta encima)", () => moverCapa(capa, 1)),
+      ibtn("↓", "Bajar la capa", () => moverCapa(capa, -1)),
+      ibtn("↔", "Voltear toda la capa en horizontal", () => { capa.els.forEach((e) => (e.fh = !e.fh)); schedule(); }),
+      ibtn("↕", "Voltear toda la capa en vertical", () => { capa.els.forEach((e) => (e.fv = !e.fv)); schedule(); }),
+      ibtn("Borrar", "Borrar la capa", () => borrarCapa(capa), "danger"));
+    head.addEventListener("click", () => seleccionar(capa, null));
+    div.append(head);
+    const body = document.createElement("div"); body.className = "lbody";
+    const modo = document.createElement("select"); modo.setAttribute("aria-label", "Ajustes de la capa");
+    modo.innerHTML = `<option value="h">Hereda los ajustes del diseño principal</option><option value="p">Valores propios</option>`;
+    modo.value = capa.inherit ? "h" : "p";
+    modo.addEventListener("change", () => {
+      capa.inherit = modo.value === "h";
+      if (!capa.inherit) capa.P = JSON.parse(JSON.stringify(mainP));   // empieza con lo del diseño principal
+      comp.selL = capa; editar(capa.inherit ? null : capa); renderCapas();
+    });
+    body.append(modo);
+    capa.els.forEach((el) => {
+      const row = document.createElement("div"); row.className = "el" + (comp.selE === el ? " sel" : "") + (el.visible ? "" : " off");
+      const th = document.createElement("canvas"); th.width = 34; th.height = 34; el.thumb = th;
+      const nm = document.createElement("span"); nm.className = "ename"; nm.textContent = el.name; nm.title = el.name;
+      const tools = document.createElement("span"); tools.className = "etools";
+      const vb = ibtn(el.visible ? "Ver" : "Oculta", "Ver u ocultar la pieza", () => { el.visible = !el.visible; renderCapas(); schedule(); });
+      vb.setAttribute("aria-pressed", el.visible);
+      const fh = ibtn("↔", "Voltear en horizontal", () => { el.fh = !el.fh; fh.setAttribute("aria-pressed", el.fh); schedule(); }); fh.setAttribute("aria-pressed", el.fh);
+      const fv = ibtn("↕", "Voltear en vertical", () => { el.fv = !el.fv; fv.setAttribute("aria-pressed", el.fv); schedule(); }); fv.setAttribute("aria-pressed", el.fv);
+      tools.append(vb, fh, fv, ibtn("Quitar", "Quitar la pieza", () => borrarPieza(capa, el), "danger"));
+      const xy = document.createElement("div"); xy.className = "xy";
+      const ix = document.createElement("input"), iy = document.createElement("input");
+      for (const [inp, k, lab] of [[ix, "x", "X"], [iy, "y", "Y"]]) {
+        inp.type = "number"; inp.step = 1; inp.min = 0; inp.value = el[k]; inp.setAttribute("aria-label", lab + " de " + el.name);
+        inp.addEventListener("click", (e) => e.stopPropagation());
+        inp.addEventListener("input", () => { el[k] = Math.max(0, Math.round(+inp.value || 0)); schedule(); });
+        const l = document.createElement("span"); l.textContent = lab; xy.append(l, inp);
+      }
+      const ie = document.createElement("input"); ie.type = "number"; ie.min = 5; ie.max = 400; ie.step = 5; ie.value = el.escala;
+      ie.setAttribute("aria-label", "Escala de " + el.name); ie.addEventListener("click", (e) => e.stopPropagation());
+      ie.addEventListener("input", () => { el.escala = Math.min(400, Math.max(5, +ie.value || 100)); schedule(); });
+      const le = document.createElement("span"); le.textContent = "Escala %"; xy.append(le, ie);
+      row.append(th, nm, tools, xy);
+      row.addEventListener("click", () => seleccionar(capa, el));
+      body.append(row);
+    });
+    const add = document.createElement("button"); add.type = "button"; add.className = "btn small"; add.textContent = "Añadir imágenes a esta capa";
+    add.addEventListener("click", (e) => { e.stopPropagation(); addDestino = capa; addInput.click(); });
+    body.append(add);
+    div.append(body);
+    box.append(div);
+  });
+  refrescarMiniaturas();
+  pintarDestino();
+  actualizarBotones();
+}
+function refrescarMiniaturas() {
+  for (const capa of comp.layers) for (const el of capa.els) {
+    if (!el.thumb || !el.cache) continue;
+    const t = el.thumb, cx = t.getContext("2d"), s = el.cache.c, k = Math.min(34 / s.width, 34 / s.height);
+    cx.clearRect(0, 0, 34, 34); cx.imageSmoothingEnabled = el.cache.boss;
+    const w = s.width * k, h = s.height * k;
+    cx.save(); cx.translate((34 - w) / 2 + (el.fh ? w : 0), (34 - h) / 2 + (el.fv ? h : 0)); cx.scale(el.fh ? -1 : 1, el.fv ? -1 : 1);
+    cx.drawImage(s, 0, 0, w, h); cx.restore();
+  }
+}
+
+/* arrastrar piezas en la vista */
+function puntoEnComp(e) {
+  const r = viewC.getBoundingClientRect();
+  return { x: (e.clientX - r.left) * viewC.width / r.width, y: (e.clientY - r.top) * viewC.height / r.height };
+}
+viewC.addEventListener("pointerdown", (e) => {
+  if (!enComposicion()) return;
+  const p = puntoEnComp(e);
+  const tir = tiradorEn(p);
+  if (tir) {   // escalar desde una esquina: la esquina contraria se queda quieta
+    const { q, i } = tir, izq = i === 0 || i === 2, arr = i === 0 || i === 1;
+    arrastre = { escalar: true, el: q.el, izq, arr, ax: izq ? q.x + q.w : q.x, ay: arr ? q.y + q.h : q.y, w0: q.w, h0: q.h, e0: q.el.escala || 100 };
+    viewC.setPointerCapture(e.pointerId); e.preventDefault();
+    return;
+  }
+  const hit = [...compRects].reverse().find((q) => p.x >= q.x && p.y >= q.y && p.x < q.x + q.w && p.y < q.y + q.h);
+  if (!hit) { comp.selE = null; renderCapas(); drawView(); return; }
+  const capa = comp.layers.find((l) => l.els.includes(hit.el));
+  if (comp.selE !== hit.el) seleccionar(capa, hit.el);
+  arrastre = { el: hit.el, dx: p.x - hit.el.x, dy: p.y - hit.el.y };
+  viewC.setPointerCapture(e.pointerId); viewC.classList.add("dragging");
+  e.preventDefault();
+});
+let dragFrame = 0;
+viewC.addEventListener("pointermove", (e) => {
+  if (!arrastre) {
+    if (enComposicion()) { const t = tiradorEn(puntoEnComp(e)); viewC.style.cursor = t ? (t.i === 0 || t.i === 3 ? "nwse-resize" : "nesw-resize") : ""; }
+    return;
+  }
+  if (arrastre.escalar) {
+    const a = arrastre, p = puntoEnComp(e);
+    const f = Math.max(Math.abs(p.x - a.ax) / a.w0, Math.abs(p.y - a.ay) / a.h0);
+    a.el.escala = Math.min(400, Math.max(5, Math.round(a.e0 * f)));
+    if (!dragFrame) dragFrame = requestAnimationFrame(() => {
+      dragFrame = 0;
+      const capa = comp.layers.find((l) => l.els.includes(a.el));
+      const o = procesar(capa, a.el);
+      a.el.x = Math.max(0, Math.round(a.izq ? a.ax - o.c.width : a.ax));
+      a.el.y = Math.max(0, Math.round(a.arr ? a.ay - o.c.height : a.ay));
+      pintarComposicion(); drawView();
+      aviso("Escala " + a.el.escala + " %");
+    });
+    return;
+  }
+  const p = puntoEnComp(e), g = $("snap16").checked ? 16 : 1;
+  arrastre.el.x = Math.max(0, Math.round((p.x - arrastre.dx) / g) * g);
+  arrastre.el.y = Math.max(0, Math.round((p.y - arrastre.dy) / g) * g);
+  if (!dragFrame) dragFrame = requestAnimationFrame(() => { dragFrame = 0; pintarComposicion(); drawView(); });
+});
+const soltarArrastre = () => { if (!arrastre) return; arrastre = null; viewC.classList.remove("dragging"); renderCapas(); schedule(); };
+viewC.addEventListener("pointerup", soltarArrastre);
+viewC.addEventListener("pointercancel", soltarArrastre);
+document.addEventListener("keydown", (e) => {
+  if (!enComposicion() || !comp.selE || /input|textarea|select/i.test(document.activeElement.tagName)) return;
+  const d = e.shiftKey ? 16 : 1, el = comp.selE;
+  const mov = { ArrowLeft: [-d, 0], ArrowRight: [d, 0], ArrowUp: [0, -d], ArrowDown: [0, d] }[e.key];
+  if (mov) { el.x = Math.max(0, el.x + mov[0]); el.y = Math.max(0, el.y + mov[1]); e.preventDefault(); schedule(); renderCapas(); }
+});
+
+/* botones del panel */
+$("layFolder").addEventListener("change", (e) => { if (e.target.files.length) importarArchivos([...e.target.files], null); e.target.value = ""; });
+$("layFiles").addEventListener("change", (e) => { if (e.target.files.length) importarArchivos([...e.target.files], null); e.target.value = ""; });
+$("layNew").addEventListener("click", () => {
+  const capa = nuevaCapa(); comp.selL = capa; comp.selE = null; stageVista = "comp";
+  $("layMsg").textContent = "Capa vacía creada. Añádele imágenes con su botón.";
+  renderCapas(); syncControls(); schedule();
+});
+$("layPack").addEventListener("click", () => {
+  organizar(); schedule(); renderCapas();
+  setTimeout(() => { $("layMsg").className = "msg"; $("layMsg").textContent = compBoss ? `Organizado en una hoja de ${compC.width}×${compC.height} px, en celdas de 16.` : `Organizado en un atlas de ${compC.width / 16}×${compC.height / 16} tiles de 16.`; }, 50);
+});
+$("layExportPieces").addEventListener("click", exportarPiezas);
+$("compScale").addEventListener("change", schedule);
+$("sFoto").addEventListener("click", () => { stageVista = "foto"; renderCapas(); schedule(); });
+$("sComp").addEventListener("click", () => { stageVista = "comp"; renderCapas(); schedule(); });
+
+/* ---------- deshacer, rehacer, copiar, cortar y pegar ---------- */
+// La historia guarda fotos del estado (ajustes, capas y piezas) en texto; las imágenes no se copian, se apuntan por id.
+const elReg = {}, imgReg = {};
+let pilaDeshacer = [], pilaRehacer = [], ultimoEstado = null, restaurando = false, tHist = 0;
+const MAX_HIST = 80;
+function registrarImagen() { imgReg[imgId] = { img, baseName, isSample, fname: $("fname").textContent }; }
+function estado() {
+  return JSON.stringify({ t: type, P: mainP, img: imgId, v: stageVista, cs: $("compScale").value,
+    L: comp.layers.map((l) => ({ id: l.id, n: l.name, v: l.visible, h: l.inherit, P: l.P,
+      e: l.els.map((e) => [e.id, e.name, e.x, e.y, e.fh, e.fv, e.visible, e.escala]) })) });
+}
+function programarHistoria() { if (restaurando) return; clearTimeout(tHist); tHist = setTimeout(registrar, 350); }
+function registrar() {
+  clearTimeout(tHist); tHist = 0;
+  if (restaurando || !mainP) return;
+  for (const l of comp.layers) for (const e of l.els) elReg[e.id] = e;
+  registrarImagen();
+  const s = estado();
+  if (s === ultimoEstado) return;
+  if (ultimoEstado !== null) { pilaDeshacer.push(ultimoEstado); if (pilaDeshacer.length > MAX_HIST) pilaDeshacer.shift(); pilaRehacer = []; }
+  ultimoEstado = s;
+  actualizarBotones();
+}
+function restaurar(str) {
+  restaurando = true;
+  const s = JSON.parse(str);
+  if (s.t !== type) {
+    type = s.t;
+    document.querySelectorAll(".tab").forEach((b) => b.setAttribute("aria-selected", b.dataset.type === type ? "true" : "false"));
+    $("vTile").checked = type === "suelo" || type === "pared";
+    $("resTitle").textContent = "Resultado · " + TYPES[type].label;
+    renderGuide();
+  }
+  mainP = s.P;
+  if (s.img !== imgId && imgReg[s.img]) {
+    const r = imgReg[s.img]; img = r.img; imgId = s.img; baseName = r.baseName; isSample = r.isSample;
+    $("fname").textContent = r.fname; $("sampleTag").hidden = !isSample;
+  }
+  stageVista = s.v; $("compScale").value = s.cs;
+  const selL = comp.selL && comp.selL.id, selE = comp.selE && comp.selE.id;
+  comp.layers = s.L.map((l) => ({ id: l.id, name: l.n, visible: l.v, inherit: l.h, P: l.P,
+    els: l.e.map(([id, name, x, y, fh, fv, visible, escala]) => Object.assign(elReg[id], { name, x, y, fh, fv, visible, escala })) }));
+  comp.selL = comp.layers.find((l) => l.id === selL) || null;
+  comp.selE = comp.selL ? comp.selL.els.find((e) => e.id === selE) || null : null;
+  if (comp.selL && !comp.selL.inherit) { P = comp.selL.P; capaEditada = comp.selL; } else { P = mainP; capaEditada = null; }
+  if (!comp.layers.length) stageVista = "foto";
+  cacheA = null; cacheB = null;
+  ultimoEstado = str;
+  renderCapas(); syncControls(); schedule();
+  restaurando = false;
+  actualizarBotones();
+}
+function deshacer() {
+  if (tHist) registrar();
+  if (!pilaDeshacer.length) return aviso("No hay nada que deshacer.");
+  pilaRehacer.push(ultimoEstado); restaurar(pilaDeshacer.pop()); aviso("Deshecho.");
+}
+function rehacer() {
+  if (tHist) registrar();
+  if (!pilaRehacer.length) return aviso("No hay nada que rehacer.");
+  pilaDeshacer.push(ultimoEstado); restaurar(pilaRehacer.pop()); aviso("Rehecho.");
+}
+let tAviso = 0;
+function aviso(t) { const m = $("editMsg"); m.textContent = t; clearTimeout(tAviso); tAviso = setTimeout(() => (m.textContent = ""), 2200); }
+
+let portapapeles = null;
+const MARCA = "cal-y-pixel:pieza";
+const copiaP = (p) => (p ? JSON.parse(JSON.stringify(p)) : null);
+const datosPieza = (e) => ({ name: e.name, src: e.src, offX: e.offX, offY: e.offY, w0: e.w0, h0: e.h0, x: e.x, y: e.y, fh: e.fh, fv: e.fv, visible: e.visible, escala: e.escala });
+function clonarPieza(capa, d) {
+  const e = nuevoElemento(capa, d.name, { c: d.src, offX: d.offX, offY: d.offY, w0: d.w0, h0: d.h0 });
+  Object.assign(e, { x: d.x, y: d.y, fh: d.fh, fv: d.fv, visible: d.visible, escala: d.escala });
+  elReg[e.id] = e; return e;
+}
+function copiar(cortar) {
+  if (!enComposicion() || (!comp.selE && !comp.selL)) { aviso("Selecciona una pieza o una capa para " + (cortar ? "cortarla." : "copiarla.")); return false; }
+  if (comp.selE) {
+    const capa = comp.layers.find((l) => l.els.includes(comp.selE));
+    portapapeles = { tipo: "pieza", capaId: capa.id, capaP: capa.inherit ? null : copiaP(capa.P), e: datosPieza(comp.selE) };
+    aviso((cortar ? "Cortada" : "Copiada") + " la pieza «" + comp.selE.name + "».");
+    if (cortar) borrarPieza(capa, comp.selE);
+  } else {
+    const c = comp.selL;
+    portapapeles = { tipo: "capa", c: { name: c.name, visible: c.visible, inherit: c.inherit, P: copiaP(c.P), els: c.els.map(datosPieza) } };
+    aviso((cortar ? "Cortada" : "Copiada") + " la capa «" + c.name + "».");
+    if (cortar) borrarCapa(c);
+  }
+  actualizarBotones();
+  return true;
+}
+function pegar() {
+  if (!portapapeles) { aviso("No hay nada copiado. Para pegar una imagen de fuera, usa Ctrl+V."); return false; }
+  stageVista = "comp";
+  if (portapapeles.tipo === "pieza") {
+    let capa = comp.selL || comp.layers.find((l) => l.id === portapapeles.capaId);
+    if (!capa) { capa = nuevaCapa(portapapeles.e.name); if (portapapeles.capaP) { capa.inherit = false; capa.P = copiaP(portapapeles.capaP); } }
+    portapapeles.e.x += 16; portapapeles.e.y += 16;          // cada pegado, un poco más abajo
+    const e = clonarPieza(capa, portapapeles.e);
+    aviso("Pegada en «" + capa.name + "».");
+    seleccionar(capa, e);
+  } else {
+    const c = portapapeles.c, capa = nuevaCapa(c.name + " copia");
+    capa.visible = c.visible; capa.inherit = c.inherit; capa.P = copiaP(c.P);
+    for (const d of c.els) { d.x += 16; d.y += 16; clonarPieza(capa, d); }
+    aviso("Pegada la capa «" + capa.name + "».");
+    seleccionar(capa, null);
+  }
+  return true;
+}
+async function pegarDesdeBoton() {
+  if (portapapeles) return pegar();
+  try {   // una imagen copiada de fuera, si el navegador deja leerla
+    for (const it of await navigator.clipboard.read()) {
+      const t = it.types.find((x) => x.startsWith("image/"));
+      if (t) { const f = new File([await it.getType(t)], "pegada.png", { type: t }); if (enComposicion()) importarArchivos([f], comp.selL); else loadFile(f); return; }
+    }
+  } catch (e) { /* sin permiso */ }
+  aviso("No hay nada copiado. Para pegar una imagen de fuera, usa Ctrl+V.");
+}
+function actualizarBotones() {
+  if (!$("bUndo")) return;
+  $("bUndo").disabled = !pilaDeshacer.length && !tHist;
+  $("bRedo").disabled = !pilaRehacer.length;
+  const sel = enComposicion() && (comp.selE || comp.selL);
+  $("bCut").disabled = $("bCopy").disabled = !sel;
+  $("bPaste").disabled = false;
+}
+const esTexto = (el) => el && (el.tagName === "TEXTAREA" || (el.tagName === "INPUT" && /^(text|number|search|email|url|password)$/i.test(el.type)) || el.isContentEditable);
+document.addEventListener("keydown", (e) => {
+  if (!(e.ctrlKey || e.metaKey) || esTexto(document.activeElement)) return;
+  const k = e.key.toLowerCase();
+  if (k === "z" && !e.shiftKey) { e.preventDefault(); deshacer(); }
+  else if ((k === "z" && e.shiftKey) || k === "y") { e.preventDefault(); rehacer(); }
+});
+for (const ev of ["copy", "cut"]) document.addEventListener(ev, (e) => {
+  if (esTexto(document.activeElement) || String(getSelection()).trim() || !enComposicion()) return;
+  if (copiar(ev === "cut")) { e.preventDefault(); if (e.clipboardData) e.clipboardData.setData("text/plain", MARCA); }
+});
+document.addEventListener("paste", (e) => {
+  if (esTexto(document.activeElement)) return;
+  const cd = e.clipboardData;
+  const txt = cd ? cd.getData("text/plain") : "";
+  if (txt === MARCA && portapapeles) { e.preventDefault(); pegar(); return; }
+  const it = [...(cd ? cd.items : [])].find((i) => i.type.startsWith("image/"));
+  if (it) { e.preventDefault(); const f = it.getAsFile(); if (enComposicion()) importarArchivos([f], comp.selL); else loadFile(f); return; }
+  if (portapapeles && enComposicion()) { e.preventDefault(); pegar(); }
+});
+$("bUndo").addEventListener("click", deshacer);
+$("bRedo").addEventListener("click", rehacer);
+$("bCut").addEventListener("click", () => copiar(true));
+$("bCopy").addEventListener("click", () => copiar(false));
+$("bPaste").addEventListener("click", pegarDesdeBoton);
 
 /* arranque */
 img = makeSample(); imgId = 1;
@@ -1179,6 +1908,3 @@ try { const s = localStorage.getItem("calypixel:type"); if (s && TYPES[s]) start
 setType(startType);
 })();
 </script>
-
-</body>
-</html>
